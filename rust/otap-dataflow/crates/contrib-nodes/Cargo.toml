@@ -58,6 +58,7 @@ flate2 = { workspace = true, optional = true }
 http = { workspace = true, optional = true }
 rand = { workspace = true, optional = true }
 ryu = { workspace = true, optional = true }
+tokio-postgres = { workspace = true, optional = true }
 
 # ClickHouse exporter dependencies (optional, behind feature flag)
 clickhouse = { workspace = true, optional = true }
@@ -111,8 +112,10 @@ aws = [
 contrib-receivers = [
     "etw-receiver",
     "kafka-receiver",
+    "postgres-receiver",
     "user_events-receiver",
 ]
+postgres-receiver = ["dep:tokio-postgres"]
 user_events-receiver = [
     "dep:base64",
     "dep:chrono",

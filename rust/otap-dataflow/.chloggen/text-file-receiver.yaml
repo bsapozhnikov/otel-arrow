@@ -1,0 +1,5 @@
+change_type: new_component
+component: pipeline
+note: Add text file and PostgreSQL receivers that stream source rows into bounded OTAP log batches.
+issues: []
+subtext: The PostgreSQL receiver reads its connection string from an environment variable and currently supports non-TLS connections only.

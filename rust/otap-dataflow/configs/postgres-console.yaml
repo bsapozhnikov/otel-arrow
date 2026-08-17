@@ -1,0 +1,36 @@
+# The PostgreSQL receiver currently uses NoTls. The connection string must
+# select a non-TLS connection, for example with sslmode=disable.
+#
+# The query runs once and must return non-NULL text columns named `message` and
+# `severity`. Set POSTGRES_CONNECTION_STRING before starting df_engine.
+version: otel_dataflow/v1
+engine: {}
+policies:
+  resources:
+    core_allocation:
+      type: core_count
+      count: 1
+groups:
+  default:
+    pipelines:
+      main:
+        nodes:
+          postgres:
+            type: receiver:postgres
+            config:
+              connection_string_env: POSTGRES_CONNECTION_STRING
+              query: >-
+                SELECT message, severity
+                FROM application_logs
+                ORDER BY id
+              body_column: message
+              severity_text_column: severity
+              event_name: application_logs.row
+              batch_size: 1000
+          console:
+            type: exporter:console
+            config: {}
+
+        connections:
+          - from: postgres
+            to: console

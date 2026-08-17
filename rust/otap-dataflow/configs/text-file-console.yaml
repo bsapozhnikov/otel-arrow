@@ -1,0 +1,24 @@
+version: otel_dataflow/v1
+engine: {}
+policies:
+  resources:
+    core_allocation:
+      type: core_count
+      count: 1
+groups:
+  default:
+    pipelines:
+      main:
+        nodes:
+          text_file:
+            type: receiver:text_file
+            config:
+              path: 'C:\path\to\otel-arrow-input.txt'
+              batch_size: 1000
+          console:
+            type: exporter:console
+            config: {}
+
+        connections:
+          - from: text_file
+            to: console

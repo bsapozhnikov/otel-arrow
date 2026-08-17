@@ -261,6 +261,7 @@ flate2 = "1.1.5"
 # Keep reqwest default features off to avoid pulling in default-tls (and aws-lc-rs via reqwest's rustls feature).
 # TLS remains enabled through rustls-no-provider, with the provider installed at startup via crypto-* features.
 reqwest = { version = "0.13.1", default-features = false, features = ["rustls-no-provider", "json", "query", "http2", "stream", "charset", "system-proxy"] }
+tokio-postgres = { version = "0.7", default-features = false, features = ["runtime"] }
 
 time = ">=0.3.47, <0.3.56"
 wiremock = "0.6.5"
@@ -349,6 +350,7 @@ oauth2-client-auth-extension = ["otap-df-contrib-extensions/oauth2-client-auth-e
 # Contrib receivers (opt-in) - now in contrib-nodes
 contrib-receivers = ["otap-df-contrib-nodes/contrib-receivers"]
 kafka-receiver = ["otap-df-contrib-nodes/kafka-receiver"]
+postgres-receiver = ["otap-df-contrib-nodes/postgres-receiver"]
 user_events-receiver = ["otap-df-contrib-nodes/user_events-receiver"]
 user_events-eventheader = ["otap-df-contrib-nodes/user_events-eventheader"]
 clickhouse-exporter = ["otap-df-contrib-nodes/clickhouse-exporter"]

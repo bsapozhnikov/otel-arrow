@@ -17,14 +17,14 @@ groups:
               generation_strategy: pre_generated
               traffic_config:
                 signals_per_second: 5
-                max_signal_count: 20
+                max_signal_count: ${env:KAFKA_MAX_SIGNAL_COUNT:-20}
                 metric_weight: 0
                 trace_weight: 0
                 log_weight: 1
           kafka:
             type: exporter:kafka
             config:
-              brokers: "localhost:9093"
+              brokers: "${env:KAFKA_BROKERS:-localhost:9093}"
               client_id: "otap-plain-producer"
               logs:
                 topic: "otlp-logs-plain"
@@ -36,7 +36,7 @@ groups:
                   username: "plain"
                   password: "plain-secret"
               tls:
-                ca_file: "examples/kafka-sasl-tls/certs/ca.crt"
+                ca_file: "${env:KAFKA_CA_FILE:-examples/kafka-sasl-tls/certs/ca.crt}"
         connections:
           - from: generator
             to: kafka
@@ -46,7 +46,7 @@ groups:
           kafka:
             type: receiver:kafka
             config:
-              brokers: "localhost:9093"
+              brokers: "${env:KAFKA_BROKERS:-localhost:9093}"
               group_id: "otap-plain-consumer"
               client_id: "otap-plain-consumer"
               auto_offset_reset: earliest
@@ -59,7 +59,7 @@ groups:
                   username: "plain"
                   password: "plain-secret"
               tls:
-                ca_file: "examples/kafka-sasl-tls/certs/ca.crt"
+                ca_file: "${env:KAFKA_CA_FILE:-examples/kafka-sasl-tls/certs/ca.crt}"
           console:
             type: exporter:console
             config: {}
@@ -76,14 +76,14 @@ groups:
               generation_strategy: pre_generated
               traffic_config:
                 signals_per_second: 5
-                max_signal_count: 20
+                max_signal_count: ${env:KAFKA_MAX_SIGNAL_COUNT:-20}
                 metric_weight: 0
                 trace_weight: 0
                 log_weight: 1
           kafka:
             type: exporter:kafka
             config:
-              brokers: "localhost:9093"
+              brokers: "${env:KAFKA_BROKERS:-localhost:9093}"
               client_id: "otap-scram-256-producer"
               logs:
                 topic: "otlp-logs-scram-256"
@@ -95,7 +95,7 @@ groups:
                   username: "scram256"
                   password: "scram256-secret"
               tls:
-                ca_file: "examples/kafka-sasl-tls/certs/ca.crt"
+                ca_file: "${env:KAFKA_CA_FILE:-examples/kafka-sasl-tls/certs/ca.crt}"
         connections:
           - from: generator
             to: kafka
@@ -105,7 +105,7 @@ groups:
           kafka:
             type: receiver:kafka
             config:
-              brokers: "localhost:9093"
+              brokers: "${env:KAFKA_BROKERS:-localhost:9093}"
               group_id: "otap-scram-256-consumer"
               client_id: "otap-scram-256-consumer"
               auto_offset_reset: earliest
@@ -118,7 +118,7 @@ groups:
                   username: "scram256"
                   password: "scram256-secret"
               tls:
-                ca_file: "examples/kafka-sasl-tls/certs/ca.crt"
+                ca_file: "${env:KAFKA_CA_FILE:-examples/kafka-sasl-tls/certs/ca.crt}"
           console:
             type: exporter:console
             config: {}
@@ -135,14 +135,14 @@ groups:
               generation_strategy: pre_generated
               traffic_config:
                 signals_per_second: 5
-                max_signal_count: 20
+                max_signal_count: ${env:KAFKA_MAX_SIGNAL_COUNT:-20}
                 metric_weight: 0
                 trace_weight: 0
                 log_weight: 1
           kafka:
             type: exporter:kafka
             config:
-              brokers: "localhost:9093"
+              brokers: "${env:KAFKA_BROKERS:-localhost:9093}"
               client_id: "otap-scram-512-producer"
               logs:
                 topic: "otlp-logs-scram-512"
@@ -154,7 +154,7 @@ groups:
                   username: "scram512"
                   password: "scram512-secret"
               tls:
-                ca_file: "examples/kafka-sasl-tls/certs/ca.crt"
+                ca_file: "${env:KAFKA_CA_FILE:-examples/kafka-sasl-tls/certs/ca.crt}"
         connections:
           - from: generator
             to: kafka
@@ -164,7 +164,7 @@ groups:
           kafka:
             type: receiver:kafka
             config:
-              brokers: "localhost:9093"
+              brokers: "${env:KAFKA_BROKERS:-localhost:9093}"
               group_id: "otap-scram-512-consumer"
               client_id: "otap-scram-512-consumer"
               auto_offset_reset: earliest
@@ -177,7 +177,7 @@ groups:
                   username: "scram512"
                   password: "scram512-secret"
               tls:
-                ca_file: "examples/kafka-sasl-tls/certs/ca.crt"
+                ca_file: "${env:KAFKA_CA_FILE:-examples/kafka-sasl-tls/certs/ca.crt}"
           console:
             type: exporter:console
             config: {}

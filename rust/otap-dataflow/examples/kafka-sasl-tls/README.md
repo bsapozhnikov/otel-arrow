@@ -2,7 +2,7 @@
 
 This example validates the otel-arrow Kafka exporter and receiver against a
 real Kafka broker. It sends OTLP protobuf logs through three independent
-SASL-over-TLS pipelines:
+SASL-over-TLS paths:
 
 | Mechanism | Topic | Consumer group |
 | --- | --- | --- |
@@ -35,34 +35,22 @@ flowchart LR
 
     kafka_exporter -->|Produce with SASL over TLS| topic
     topic -->|Consume with SASL over TLS| kafka_receiver
-    auth_test[Test-KafkaAuth.ps1] -. Broker-only preflight .-> broker
 ```
 
-- **Traffic generator** (`receiver:traffic_generator`) is the dataflow source.
-  It creates synthetic logs at five signals per second, up to 20 signals per
-  mechanism.
-- **Producer pipeline** groups the traffic generator and Kafka exporter. It is
-  a pipeline name, not a separate runtime component.
-- **Kafka exporter** (`exporter:kafka`) encodes the generated logs as OTLP
-  protobuf and produces them to the mechanism-specific topic using SASL over
-  TLS.
-- **Kafka broker** is the real Confluent Kafka instance started by Docker
-  Compose. Its authenticated client listener is available at
-  `localhost:9093`.
-- **Kafka topic** separates the messages for each mechanism so every path can
-  be verified independently.
-- **Consumer pipeline** groups the Kafka receiver and console exporter. Like
-  the producer pipeline, it describes node composition and connections.
-- **Kafka receiver** (`receiver:kafka`) authenticates with Kafka, joins the
-  configured consumer group, reads the matching topic, and decodes the OTLP
-  protobuf messages.
-- **Consumer group** tracks the receiver's committed offsets. A lag of zero
-  proves that the receiver consumed all messages produced to its topic.
-- **Console exporter** (`exporter:console`) prints the decoded logs, proving
-  that telemetry reached the end of the otel-arrow pipeline.
-- **Broker authentication test** (`Test-KafkaAuth.ps1`) verifies the broker's
-  three SASL-over-TLS handshakes before otel-arrow starts. It is a preflight
-  check and is not part of the dataflow path.
+Each mechanism has a producer pipeline and a consumer pipeline, resulting in
+the six pipelines shown in the admin portal:
+
+- The traffic generator creates synthetic logs at five signals per second.
+- The Kafka exporter encodes the logs as OTLP protobuf and authenticates to
+  the broker.
+- The Kafka receiver authenticates independently, consumes the matching topic,
+  and decodes the OTLP protobuf messages.
+- The console exporter prints the decoded logs.
+
+SASL authentication is configured on each Kafka exporter and receiver. The
+topics do not have authentication settings, and this example does not
+configure Kafka ACLs. It validates client authentication, not per-topic
+authorization.
 
 The fixed credentials and generated certificates are for local development
 only.
@@ -70,204 +58,111 @@ only.
 ## Prerequisites
 
 - Docker Desktop using Linux containers
-- The Rust toolchain specified by this repository
-- Visual Studio 2022 or Build Tools with the **Desktop development with C++**
-  workload
-- Python with the `libclang` package
-- vcpkg with `openssl:x64-windows-static-md`
+- PowerShell
 
-Run all commands below from **Developer PowerShell for Visual Studio**. Start
-in the repository root and define the example paths once:
+All components, including the Kafka-enabled dataflow engine, are built and run
+in Docker.
+
+## Prepare the Stack
+
+Run the following commands from `rust/otap-dataflow`:
 
 ```powershell
-Set-Location rust/otap-dataflow
 $ComposeFile = "examples/kafka-sasl-tls/compose.yaml"
-$DataflowConfig = "examples/kafka-sasl-tls/kafka-sasl-tls.yaml"
-```
+$DataflowComposeFile = "examples/kafka-sasl-tls/compose.dataflow.yaml"
+$ComposeArgs = @("-f", $ComposeFile, "-f", $DataflowComposeFile)
 
-### Prepare the Windows Build Environment
-
-Install the Python `libclang` package into the repository virtual environment
-if it is not already available:
-
-```powershell
-$RepoPython = Resolve-Path "..\..\.venv\Scripts\python.exe" `
-  -ErrorAction SilentlyContinue
-$Python = if ($RepoPython) {
-  $RepoPython.Path
-} else {
-  (Get-Command python -ErrorAction Stop).Source
-}
-& $Python -m pip install libclang
-```
-
-Resolve `libclang.dll` from that environment and configure bindgen:
-
-```powershell
-$LibClangDll = & $Python -c @"
-import pathlib
-import clang
-print(next(pathlib.Path(clang.__file__).parent.rglob("libclang.dll")))
-"@
-
-$Env:LIBCLANG_PATH = Split-Path -Parent $LibClangDll
-if (-not (Test-Path "$Env:LIBCLANG_PATH\libclang.dll")) {
-  throw "libclang.dll was not found in the repository virtual environment."
-}
-Write-Host "LIBCLANG_PATH=$Env:LIBCLANG_PATH"
-```
-
-When the repository virtual environment is present, this resolves to
-`<repository>\.venv\Lib\site-packages\clang\native`.
-
-Bootstrap a user-local vcpkg installation if `vcpkg.exe` is not available:
-
-```powershell
-$VcpkgRoot = "$Env:USERPROFILE\vcpkg"
-
-if (-not (Test-Path "$VcpkgRoot\vcpkg.exe")) {
-    if (-not (Test-Path "$VcpkgRoot\bootstrap-vcpkg.bat")) {
-        git clone --depth 1 https://github.com/microsoft/vcpkg.git $VcpkgRoot
-    }
-    & "$VcpkgRoot\bootstrap-vcpkg.bat" -disableMetrics
-}
-```
-
-Install OpenSSL and configure the current Developer PowerShell session:
-
-```powershell
-& "$VcpkgRoot\vcpkg.exe" install openssl:x64-windows-static-md
-
-$Env:VCPKG_ROOT = $VcpkgRoot
-$Env:VCPKG_INSTALLATION_ROOT = $VcpkgRoot
-$Env:OPENSSL_DIR = "$VcpkgRoot\installed\x64-windows-static-md"
-$Env:OPENSSL_ROOT_DIR = $Env:OPENSSL_DIR
-$Env:OPENSSL_USE_STATIC_LIBS = "TRUE"
-
-Test-Path "$Env:LIBCLANG_PATH\libclang.dll"
-Test-Path "$Env:OPENSSL_DIR\include\openssl\ssl.h"
-Test-Path "$Env:OPENSSL_DIR\lib\libssl.lib"
-Test-Path "$Env:OPENSSL_DIR\lib\libcrypto.lib"
-```
-
-All four checks must print `True`. Set these environment variables again when
-using a new Developer PowerShell session.
-
-## Start Kafka
-
-Start Docker Desktop and wait until it reports that the engine is running.
-Then validate the Compose file and start the broker:
-
-```powershell
-docker version
-if ($LASTEXITCODE -ne 0) {
-  throw "Docker Desktop is not ready."
-}
-
-docker compose -f $ComposeFile config --quiet
+docker compose @ComposeArgs config --quiet
 if ($LASTEXITCODE -ne 0) {
   throw "Compose validation failed."
 }
+```
 
-docker compose -f $ComposeFile up -d --wait kafka
+Both Compose files are required for the end-to-end validation flows:
+
+- `compose.yaml` defines certificate generation, Kafka, users, and topics.
+- `compose.dataflow.yaml` adds the dataflow engine, admin portal,
+  container-network settings, and selectable traffic limit.
+
+The Compose override configures the broker address and certificate path for
+the container network. Choose one of the validation flows below before
+starting the stack.
+
+The first image build can take several minutes. Docker reuses the Cargo build
+caches on later builds.
+
+## Continuous Validation with the Admin Portal
+
+Use continuous traffic to observe all six pipelines in the admin portal. Clear
+any prior limit and start the stack:
+
+```powershell
+Remove-Item Env:KAFKA_MAX_SIGNAL_COUNT -ErrorAction SilentlyContinue
+
+docker compose @ComposeArgs up -d --build
 if ($LASTEXITCODE -ne 0) {
-  throw "Kafka startup failed."
+  throw "Kafka SASL/TLS stack startup failed."
 }
 
-docker compose -f $ComposeFile run --rm kafka-init
+docker compose @ComposeArgs ps
+```
+
+Open <http://127.0.0.1:8080/> to view the six pipelines and their live traffic.
+
+In another PowerShell terminal, follow the dataflow logs to see the decoded
+telemetry emitted by the console exporters at the end of the receiver
+pipelines:
+
+```powershell
+docker compose `
+  -f examples/kafka-sasl-tls/compose.yaml `
+  -f examples/kafka-sasl-tls/compose.dataflow.yaml `
+  logs --follow --no-color df-engine
+```
+
+Look for repeated `RESOURCE` and `SCOPE` entries. Press `Ctrl-C` to stop
+following the logs without stopping the stack.
+
+## Bounded Validation in the Console
+
+Use a bounded run to produce 20 signals per authentication mechanism and
+produce a finite console log that is easier to review. Start from an empty
+broker so the output only represents the current run:
+
+```powershell
+docker compose @ComposeArgs down -v
+$Env:KAFKA_MAX_SIGNAL_COUNT = "20"
+
+docker compose @ComposeArgs up -d --build
 if ($LASTEXITCODE -ne 0) {
-  throw "Kafka initialization failed."
+  throw "Kafka SASL/TLS stack startup failed."
+}
+Start-Sleep -Seconds 20
+docker compose @ComposeArgs logs --no-color df-engine
+```
+
+The dataflow engine remains running after the generators reach their limits.
+Review the output for the three partition assignments and the finite set of
+decoded `RESOURCE` and `SCOPE` entries.
+
+Remove the environment override before returning to continuous validation:
+
+```powershell
+Remove-Item Env:KAFKA_MAX_SIGNAL_COUNT -ErrorAction SilentlyContinue
+```
+
+## Verify Either Flow
+
+Confirm that the admin endpoint responds, all three Kafka receivers acquired
+their partitions, and decoded telemetry reached the console exporters:
+
+```powershell
+$Response = Invoke-WebRequest http://127.0.0.1:8080/
+if ($Response.StatusCode -ne 200) {
+  throw "Admin portal did not return HTTP 200."
 }
 
-docker compose -f $ComposeFile ps
-$RunningServices = @(
-  docker compose -f $ComposeFile ps --status running --services
-)
-if ($LASTEXITCODE -ne 0 -or $RunningServices -notcontains "kafka") {
-  throw "Kafka is not running."
-}
-```
-
-The startup generates a local CA and broker certificate, creates the SCRAM
-users, and creates all three topics. The broker exposes its authenticated
-listener at `localhost:9093`.
-
-## Check Broker Authentication
-
-Verify that the broker accepts each SASL mechanism through its TLS listener:
-
-```powershell
-& ./examples/kafka-sasl-tls/scripts/Test-KafkaAuth.ps1
-```
-
-Expected output:
-
-```text
-PASS: PLAIN over TLS - localhost:9093 ...
-PASS: SCRAM-SHA-256 over TLS - localhost:9093 ...
-PASS: SCRAM-SHA-512 over TLS - localhost:9093 ...
-```
-
-This is a broker-only check using Kafka's client tools. The next steps validate
-the otel-arrow exporter and receiver.
-
-## Run the Dataflow
-
-The native build variables are scoped to the current PowerShell process. If
-this is a new Developer PowerShell session, repeat the environment-variable
-setup under **Prepare the Windows Build Environment**. Verify the required
-files immediately before running Cargo:
-
-```powershell
-$RequiredBuildFiles = @(
-  "$Env:LIBCLANG_PATH\libclang.dll"
-  "$Env:OPENSSL_DIR\include\openssl\ssl.h"
-  "$Env:OPENSSL_DIR\lib\libssl.lib"
-  "$Env:OPENSSL_DIR\lib\libcrypto.lib"
-)
-
-$RequiredBuildFiles | ForEach-Object {
-  if (-not (Test-Path $_)) {
-    throw "Required build file not found: $_"
-  }
-}
-```
-
-First validate the six-pipeline configuration:
-
-```powershell
-cargo run `
-  --features "kafka-receiver,otap-df-contrib-nodes/kafka-exporter" `
-  -- `
-  --config $DataflowConfig `
-  --validate-and-exit
-```
-
-Then start the dataflow and capture its console output:
-
-```powershell
-Remove-Item kafka-sasl-tls.log -ErrorAction SilentlyContinue
-
-cargo run `
-  --features "kafka-receiver,otap-df-contrib-nodes/kafka-exporter" `
-  -- `
-  --config $DataflowConfig `
-  --num-cores 1 2>&1 | `
-  Tee-Object -FilePath kafka-sasl-tls.log
-```
-
-Each traffic generator publishes OTLP logs through its Kafka exporter. The
-matching Kafka receiver consumes and decodes the logs, then sends them to a
-console exporter. Keep this terminal running during the checks below.
-
-## Verify End-to-End Delivery
-
-Open another PowerShell terminal from `rust/otap-dataflow`. First verify that
-all three receivers acquired their topic partitions and that the console
-exporters emitted decoded telemetry:
-
-```powershell
-$LogFile = "kafka-sasl-tls.log"
+$Logs = docker compose @ComposeArgs logs --no-color df-engine
 $ReceiverPipelines = @(
   "plain-consumer"
   "scram-256-consumer"
@@ -276,94 +171,67 @@ $ReceiverPipelines = @(
 
 $ReceiverPipelines | ForEach-Object {
   $Pattern = "partitions_assigned.*pipeline.id=$([regex]::Escape($_))"
-  if (-not (Select-String -Path $LogFile -Pattern $Pattern -Quiet)) {
+  if (-not ($Logs -match $Pattern)) {
     throw "No Kafka partition assignment found for $_."
   }
   Write-Host "PASS: $_ acquired its Kafka partition"
 }
 
-if (-not (Select-String -Path $LogFile -Pattern "RESOURCE" -Quiet) -or
-  -not (Select-String -Path $LogFile -Pattern "SCOPE" -Quiet)) {
-  throw "No decoded telemetry found in $LogFile."
+if (-not ($Logs -match "RESOURCE")) {
+  throw "No decoded telemetry found in the console exporter output."
 }
 Write-Host "PASS: console exporters emitted decoded telemetry"
 ```
 
-Console output from concurrent pipelines is interleaved and does not label
-each decoded batch with its source pipeline. The partition-assignment checks
-identify all three receivers; the next check proves that each receiver consumed
-through the end of its topic.
+Repeated `RESOURCE` entries show that decoded telemetry reached the console
+exporters. The three partition checks show that each authentication-specific
+receiver connected to Kafka and acquired its topic partition.
 
-Inspect all three consumer groups:
+To run the broker-only SASL/TLS preflight as an additional check:
 
 ```powershell
-$ComposeFile = "examples/kafka-sasl-tls/compose.yaml"
-$ConsumerGroups = @(
-  @{ Group = "otap-plain-consumer"; Topic = "otlp-logs-plain" }
-  @{ Group = "otap-scram-256-consumer"; Topic = "otlp-logs-scram-256" }
-  @{ Group = "otap-scram-512-consumer"; Topic = "otlp-logs-scram-512" }
-)
-
-$ConsumerGroups | ForEach-Object {
-  $Output = docker compose -f $ComposeFile exec -T kafka `
-    kafka-consumer-groups --bootstrap-server kafka:29092 `
-    --describe --group $_.Group
-  $Output | Write-Host
-
-  $GroupPattern = "^$([regex]::Escape($_.Group))\s+$([regex]::Escape($_.Topic))\s+"
-  $Row = $Output | Where-Object { $_ -match $GroupPattern } |
-    Select-Object -Last 1
-  if (-not $Row) {
-    throw "No offset row found for $($_.Group)."
-  }
-
-  $Columns = $Row -split "\s+"
-  if ($Columns[3] -ne $Columns[4] -or $Columns[5] -ne "0") {
-    throw "$($_.Group) has not consumed through its topic end."
-  }
-  Write-Host "PASS: $($_.Group) reached offset $($Columns[3]) with zero lag"
-}
+& ./examples/kafka-sasl-tls/scripts/Test-KafkaAuth.ps1
 ```
 
-The validation succeeds when:
-
-- All four log checks print `PASS`.
-- All three consumer-group checks print `PASS`.
-
-If the dataflow is stopped before checking the groups, Kafka may report that a
-group has no active members. This is expected; committed offsets and zero lag
-remain valid delivery evidence. Stop the dataflow with `Ctrl-C` after
-verification.
+This script verifies the broker handshake for all three mechanisms. It does
+not exercise the otel-arrow exporter or receiver.
 
 ## Troubleshooting
 
-- `Unable to find libclang`: verify that `LIBCLANG_PATH` contains
-  `libclang.dll`.
-- `Could NOT find OpenSSL`: verify that `OPENSSL_ROOT_DIR` points to the vcpkg
-  `x64-windows-static-md` installation.
-- Native compiler or CMake errors: run Cargo from Developer PowerShell for
-  Visual Studio.
-
-Inspect the container logs:
+Inspect service state and recent logs:
 
 ```powershell
-docker compose -f $ComposeFile logs --no-log-prefix kafka
-docker compose -f $ComposeFile logs --no-log-prefix certgen
+docker compose @ComposeArgs ps --all
+docker compose @ComposeArgs logs --no-color --tail 100 kafka
+docker compose @ComposeArgs logs --no-color --tail 100 df-engine
 ```
 
-To regenerate the certificates and broker state:
+If the portal shows the pipelines but no live traffic, confirm that the
+`df-engine` service has `KAFKA_MAX_SIGNAL_COUNT=null`:
 
 ```powershell
-docker compose -f $ComposeFile down -v
-Remove-Item -Recurse -Force examples/kafka-sasl-tls/certs -ErrorAction SilentlyContinue
-docker compose -f $ComposeFile up -d --wait kafka
-docker compose -f $ComposeFile run --rm kafka-init
+docker compose @ComposeArgs config |
+  Select-String -Pattern "KAFKA_MAX_SIGNAL_COUNT"
+```
+
+To rebuild the dataflow image after source changes:
+
+```powershell
+docker compose @ComposeArgs up -d --build --force-recreate df-engine
 ```
 
 ## Clean Up
 
+Stop the stack and remove its broker data:
+
 ```powershell
-docker compose -f $ComposeFile down -v
-Remove-Item -Recurse -Force examples/kafka-sasl-tls/certs -ErrorAction SilentlyContinue
-Remove-Item kafka-sasl-tls.log -ErrorAction SilentlyContinue
+docker compose @ComposeArgs down -v
+Remove-Item Env:KAFKA_MAX_SIGNAL_COUNT -ErrorAction SilentlyContinue
+```
+
+To also regenerate the local certificates on the next run:
+
+```powershell
+Remove-Item -Recurse -Force examples/kafka-sasl-tls/certs `
+  -ErrorAction SilentlyContinue
 ```

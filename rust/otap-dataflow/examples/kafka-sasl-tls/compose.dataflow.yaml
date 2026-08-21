@@ -19,11 +19,11 @@ services:
       KAFKA_CA_FILE: /etc/kafka/certs/ca.crt
       KAFKA_MAX_SIGNAL_COUNT: "${KAFKA_MAX_SIGNAL_COUNT:-null}"
     volumes:
-      - ./kafka-sasl-tls.yaml:/etc/otel/kafka-sasl-tls.yaml:ro
+      - ./scenarios/${KAFKA_SCENARIO:-auth}.yaml:/etc/otel/kafka-scenario.yaml:ro
       - ./certs:/etc/kafka/certs:ro
     command:
       - --config
-      - /etc/otel/kafka-sasl-tls.yaml
+      - /etc/otel/kafka-scenario.yaml
       - --num-cores
       - "1"
       - --http-admin-bind

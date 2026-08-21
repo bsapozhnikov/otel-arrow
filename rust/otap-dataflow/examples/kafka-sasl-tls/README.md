@@ -1,7 +1,11 @@
-# Kafka SASL over TLS Local Validation
+# Kafka Local Validation Scenarios
 
-This example validates the otel-arrow Kafka exporter and receiver against a
-real Kafka broker. It sends OTLP protobuf logs through three independent
+This example provides reusable Docker infrastructure for validating otel-arrow
+Kafka exporter and receiver pipelines against a real Kafka broker. Pipeline
+configurations live in `scenarios/` and are selected with the
+`KAFKA_SCENARIO` environment variable.
+
+The default `auth` scenario sends OTLP protobuf logs through three independent
 SASL-over-TLS paths:
 
 | Mechanism | Topic | Consumer group |
@@ -82,11 +86,34 @@ Both Compose files are required for the end-to-end validation flows:
 
 - `compose.yaml` defines certificate generation, Kafka, users, and topics.
 - `compose.dataflow.yaml` adds the dataflow engine, admin portal,
-  container-network settings, and selectable traffic limit.
+  container-network settings, selectable scenario, and traffic limit.
 
 The Compose override configures the broker address and certificate path for
-the container network. Choose one of the validation flows below before
-starting the stack.
+the container network. It loads `scenarios/auth.yaml` by default.
+
+## Select a Scenario
+
+Leave `KAFKA_SCENARIO` unset to run the default `auth` scenario:
+
+```powershell
+Remove-Item Env:KAFKA_SCENARIO -ErrorAction SilentlyContinue
+docker compose @ComposeArgs config --quiet
+```
+
+To select a scenario explicitly, set the variable to the scenario file name
+without the `.yaml` extension:
+
+```powershell
+$Env:KAFKA_SCENARIO = "auth"
+docker compose @ComposeArgs config --quiet
+docker compose @ComposeArgs up -d --build
+```
+
+The selected file must exist under `scenarios/`. Scenario pipeline definitions,
+required topics, input generation, and validation expectations should be
+documented with that scenario.
+
+The remaining instructions run the default `auth` scenario.
 
 The first image build can take several minutes. Docker reuses the Cargo build
 caches on later builds.
@@ -97,6 +124,7 @@ Use continuous traffic to observe all six pipelines in the admin portal. Clear
 any prior limit and start the stack:
 
 ```powershell
+Remove-Item Env:KAFKA_SCENARIO -ErrorAction SilentlyContinue
 Remove-Item Env:KAFKA_MAX_SIGNAL_COUNT -ErrorAction SilentlyContinue
 
 docker compose @ComposeArgs up -d --build
@@ -226,6 +254,7 @@ Stop the stack and remove its broker data:
 
 ```powershell
 docker compose @ComposeArgs down -v
+Remove-Item Env:KAFKA_SCENARIO -ErrorAction SilentlyContinue
 Remove-Item Env:KAFKA_MAX_SIGNAL_COUNT -ErrorAction SilentlyContinue
 ```
 

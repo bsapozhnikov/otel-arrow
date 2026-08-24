@@ -233,12 +233,21 @@ UDP RFC 5424 -> syslog receiver -> Kafka exporter -> syslog-logs
              -> Kafka receiver -> console exporter
 
 UDP RFC 5424 -> rsyslog -> syslog-raw
+             -> Kafka receiver (OTLP decode attempt) -X-> console exporter
 ```
 
 The syslog receiver parses each message before the Kafka exporter encodes it
 as OTLP protobuf. Kafka contains parsed OpenTelemetry logs, not the original
 raw syslog payload. The rsyslog path publishes the original RFC 5424 message
 to Kafka without using otel-arrow.
+
+The raw consumer intentionally configures `otlp_proto`, the only applicable
+Kafka log encoding currently available. The Kafka receiver forwards the bytes
+as an OTLP payload without eagerly validating the protobuf wire format. The
+console exporter then emits `console.logs_view.otlp_create_failed` with
+`InvalidProtobufWireFormat`. This pipeline makes the unsupported raw-syslog
+consumption path observable while keeping the engine and parsed OTLP path
+running.
 
 The standard rsyslog image does not include its Kafka output module. The
 scenario builds `Dockerfile.rsyslog`, which adds the `rsyslog-kafka` package
@@ -295,6 +304,17 @@ docker compose @ComposeArgs exec kafka `
   --topic syslog-raw `
   --from-beginning `
   --max-messages 1
+```
+
+The same message is offered to `syslog-raw-consumer`. Confirm that its
+partition is assigned and the expected protobuf failure is reported:
+
+```powershell
+$Logs = docker compose @ComposeArgs logs --no-color df-engine
+$Logs | Select-String -Pattern `
+  "pipeline.id=syslog-raw-consumer", `
+  "console.logs_view.otlp_create_failed", `
+  "InvalidProtobufWireFormat"
 ```
 
 ## Troubleshooting

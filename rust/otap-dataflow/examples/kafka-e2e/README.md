@@ -8,7 +8,7 @@ configurations live in `scenarios/` and are selected with the
 | Scenario | Flow |
 | --- | --- |
 | `auth` | Synthetic OTLP logs through three SASL-over-TLS mechanisms |
-| `syslog` | RFC 5424 syslog through parsing, Kafka, and console export |
+| `syslog` | RFC 5424 through parsed OTLP and raw rsyslog Kafka paths |
 
 The default `auth` scenario sends OTLP protobuf logs through three independent
 SASL-over-TLS paths:
@@ -231,11 +231,18 @@ The syslog scenario runs this path:
 ```text
 UDP RFC 5424 -> syslog receiver -> Kafka exporter -> syslog-logs
              -> Kafka receiver -> console exporter
+
+UDP RFC 5424 -> rsyslog -> syslog-raw
 ```
 
 The syslog receiver parses each message before the Kafka exporter encodes it
 as OTLP protobuf. Kafka contains parsed OpenTelemetry logs, not the original
-raw syslog payload.
+raw syslog payload. The rsyslog path publishes the original RFC 5424 message
+to Kafka without using otel-arrow.
+
+The standard rsyslog image does not include its Kafka output module. The
+scenario builds `Dockerfile.rsyslog`, which adds the `rsyslog-kafka` package
+and its `librdkafka` dependency to the pinned official image.
 
 Select the scenario and use the shared startup steps:
 
@@ -243,30 +250,52 @@ Select the scenario and use the shared startup steps:
 $Env:KAFKA_SCENARIO = "syslog"
 ```
 
-Send one RFC 5424 message on demand:
+Send one RFC 5424 message through otel-arrow:
 
 ```powershell
-& ./examples/kafka-e2e/scripts/Send-Syslog.ps1
+& ./examples/kafka-e2e/scripts/Send-Syslog.ps1 -Target OtelArrow
 ```
 
-Send custom content:
+Send one RFC 5424 message directly through rsyslog:
 
 ```powershell
 & ./examples/kafka-e2e/scripts/Send-Syslog.ps1 `
+  -Target Rsyslog
+```
+
+`OtelArrow` is the default target. Both targets support custom content:
+
+```powershell
+& ./examples/kafka-e2e/scripts/Send-Syslog.ps1 `
+  -Target Rsyslog `
   -Message "application started"
 ```
 
-Generate continuous traffic at five messages per second:
+Generate continuous traffic through either target:
 
 ```powershell
 & ./examples/kafka-e2e/scripts/Send-Syslog.ps1 `
+  -Target OtelArrow `
   -Continuous `
   -MessagesPerSecond 5
 ```
 
-Press `Ctrl-C` to stop continuous generation. In the dataflow logs, verify that
-the emitted records contain the printed message marker, `input.format` set to
-`rfc5424`, and `syslog.app_name` set to `test-app`.
+Press `Ctrl-C` to stop continuous generation.
+
+For the otel-arrow target, verify that the dataflow logs contain the printed
+message marker, `input.format` set to `rfc5424`, and `syslog.app_name` set to
+`test-app`.
+
+For the rsyslog target, read the original message from Kafka:
+
+```powershell
+docker compose @ComposeArgs exec kafka `
+  kafka-console-consumer `
+  --bootstrap-server kafka:29092 `
+  --topic syslog-raw `
+  --from-beginning `
+  --max-messages 1
+```
 
 ## Troubleshooting
 
@@ -276,6 +305,7 @@ Inspect service state and recent logs:
 docker compose @ComposeArgs ps --all
 docker compose @ComposeArgs logs --no-color --tail 100 kafka
 docker compose @ComposeArgs logs --no-color --tail 100 df-engine
+docker compose @ComposeArgs logs --no-color --tail 100 rsyslog
 ```
 
 If the auth scenario shows pipelines but no live traffic, confirm that the

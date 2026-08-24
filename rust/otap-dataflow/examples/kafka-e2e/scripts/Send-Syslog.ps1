@@ -1,5 +1,8 @@
 [CmdletBinding()]
 param(
+    [ValidateSet('OtelArrow', 'Rsyslog')]
+    [string]$Target = 'OtelArrow',
+
     [switch]$Continuous,
 
     [ValidateRange(1, 1000)]
@@ -14,6 +17,10 @@ $ErrorActionPreference = 'Stop'
 $udp = [Net.Sockets.UdpClient]::new()
 $sequence = 0
 $delayMilliseconds = [Math]::Max(1, [int](1000 / $MessagesPerSecond))
+$port = switch ($Target) {
+    'OtelArrow' { 5514 }
+    'Rsyslog' { 5515 }
+}
 
 try {
     do {
@@ -27,8 +34,8 @@ try {
         $timestamp = [DateTime]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ss.fffZ')
         $syslog = "<34>1 $timestamp test-host test-app 123 ID47 - $body"
         $bytes = [Text.Encoding]::UTF8.GetBytes($syslog)
-        [void]$udp.Send($bytes, $bytes.Length, '127.0.0.1', 5514)
-        Write-Host "Sent: $body"
+        [void]$udp.Send($bytes, $bytes.Length, '127.0.0.1', $port)
+        Write-Host "Sent to ${Target}: $body"
 
         if ($Continuous) {
             Start-Sleep -Milliseconds $delayMilliseconds

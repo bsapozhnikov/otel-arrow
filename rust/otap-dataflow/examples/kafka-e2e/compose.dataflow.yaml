@@ -3,6 +3,19 @@ services:
     environment:
       KAFKA_ADVERTISED_LISTENERS: BROKER://kafka:29092,SASL_SSL://kafka:9093
 
+  rsyslog:
+    build:
+      context: .
+      dockerfile: Dockerfile.rsyslog
+    depends_on:
+      kafka-init:
+        condition: service_completed_successfully
+    volumes:
+      - ./rsyslog.conf:/etc/rsyslog.conf:ro
+      - ./certs:/etc/kafka/certs:ro
+    ports:
+      - 127.0.0.1:5515:5515/udp
+
   df-engine:
     build:
       context: ../..

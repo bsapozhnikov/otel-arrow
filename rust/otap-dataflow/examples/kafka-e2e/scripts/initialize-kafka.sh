@@ -28,7 +28,8 @@ case "${KAFKA_SCENARIO:-auth}" in
     ;;
   syslog)
     create_topic syslog-logs
-    echo "Created syslog scenario topic."
+    create_topic syslog-raw
+    echo "Created syslog scenario topics."
     ;;
   *)
     echo "Unknown Kafka E2E scenario: ${KAFKA_SCENARIO}" >&2

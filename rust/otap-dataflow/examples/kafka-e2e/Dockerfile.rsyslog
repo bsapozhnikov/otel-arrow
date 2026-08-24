@@ -1,0 +1,9 @@
+FROM rsyslog/rsyslog:2026-04
+
+USER root
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends rsyslog-kafka \
+    && rm -rf /var/lib/apt/lists/*
+
+USER syslog:adm

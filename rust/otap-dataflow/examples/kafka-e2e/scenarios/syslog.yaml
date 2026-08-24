@@ -1,0 +1,66 @@
+version: otel_dataflow/v1
+engine: {}
+policies:
+  resources:
+    core_allocation:
+      type: core_count
+      count: 1
+groups:
+  default:
+    pipelines:
+      syslog-producer:
+        nodes:
+          syslog:
+            type: receiver:syslog_cef
+            config:
+              protocol:
+                udp:
+                  listening_addr: "0.0.0.0:5514"
+              batch:
+                max_batch_duration_ms: 50
+                max_size: 1
+          kafka:
+            type: exporter:kafka
+            config:
+              brokers: "${env:KAFKA_BROKERS:-localhost:9093}"
+              client_id: "otap-syslog-producer"
+              logs:
+                topic: "syslog-logs"
+                encoding: otlp_proto
+              allow_auto_create_topics: false
+              auth:
+                sasl:
+                  mechanism: PLAIN
+                  username: "plain"
+                  password: "plain-secret"
+              tls:
+                ca_file: "${env:KAFKA_CA_FILE:-examples/kafka-e2e/certs/ca.crt}"
+        connections:
+          - from: syslog
+            to: kafka
+
+      syslog-consumer:
+        nodes:
+          kafka:
+            type: receiver:kafka
+            config:
+              brokers: "${env:KAFKA_BROKERS:-localhost:9093}"
+              group_id: "otap-syslog-consumer"
+              client_id: "otap-syslog-consumer"
+              auto_offset_reset: earliest
+              logs:
+                topics: ["syslog-logs"]
+                encoding: otlp_proto
+              auth:
+                sasl:
+                  mechanism: PLAIN
+                  username: "plain"
+                  password: "plain-secret"
+              tls:
+                ca_file: "${env:KAFKA_CA_FILE:-examples/kafka-e2e/certs/ca.crt}"
+          console:
+            type: exporter:console
+            config: {}
+        connections:
+          - from: kafka
+            to: console

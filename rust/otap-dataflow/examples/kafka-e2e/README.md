@@ -5,6 +5,11 @@ Kafka exporter and receiver pipelines against a real Kafka broker. Pipeline
 configurations live in `scenarios/` and are selected with the
 `KAFKA_SCENARIO` environment variable.
 
+| Scenario | Flow |
+| --- | --- |
+| `auth` | Synthetic OTLP logs through three SASL-over-TLS mechanisms |
+| `syslog` | RFC 5424 syslog through parsing, Kafka, and console export |
+
 The default `auth` scenario sends OTLP protobuf logs through three independent
 SASL-over-TLS paths:
 
@@ -14,7 +19,7 @@ SASL-over-TLS paths:
 | `SCRAM-SHA-256` | `otlp-logs-scram-256` | `otap-scram-256-consumer` |
 | `SCRAM-SHA-512` | `otlp-logs-scram-512` | `otap-scram-512-consumer` |
 
-## End-to-End Validation Flow
+## Auth Scenario Flow
 
 The configuration runs this path independently for `PLAIN`, `SCRAM-SHA-256`,
 and `SCRAM-SHA-512`:
@@ -106,40 +111,32 @@ without the `.yaml` extension:
 ```powershell
 $Env:KAFKA_SCENARIO = "auth"
 docker compose @ComposeArgs config --quiet
-docker compose @ComposeArgs up -d --build
 ```
 
 The selected file must exist under `scenarios/`. Scenario pipeline definitions,
 required topics, input generation, and validation expectations should be
 documented with that scenario.
 
-The remaining instructions run the default `auth` scenario.
+## Start the Selected Scenario
 
-The first image build can take several minutes. Docker reuses the Cargo build
-caches on later builds.
-
-## Continuous Validation with the Admin Portal
-
-Use continuous traffic to observe all six pipelines in the admin portal. Clear
-any prior limit and start the stack:
+Start from an empty broker so its topics and data match the selected scenario:
 
 ```powershell
-Remove-Item Env:KAFKA_SCENARIO -ErrorAction SilentlyContinue
-Remove-Item Env:KAFKA_MAX_SIGNAL_COUNT -ErrorAction SilentlyContinue
-
+docker compose @ComposeArgs down -v
 docker compose @ComposeArgs up -d --build
 if ($LASTEXITCODE -ne 0) {
-  throw "Kafka SASL/TLS stack startup failed."
+  throw "Kafka E2E stack startup failed."
 }
 
 docker compose @ComposeArgs ps
 ```
 
-Open <http://127.0.0.1:8080/> to view the six pipelines and their live traffic.
+The first image build can take several minutes. Docker reuses the Cargo build
+caches on later builds.
 
-In another PowerShell terminal, follow the dataflow logs to see the decoded
-telemetry emitted by the console exporters at the end of the receiver
-pipelines:
+Open <http://127.0.0.1:8080/> to view the selected scenario's pipelines.
+
+Follow the dataflow logs in another PowerShell terminal:
 
 ```powershell
 docker compose `
@@ -148,38 +145,41 @@ docker compose `
   logs --follow --no-color df-engine
 ```
 
-Look for repeated `RESOURCE` and `SCOPE` entries. Press `Ctrl-C` to stop
-following the logs without stopping the stack.
+Press `Ctrl-C` to stop following the logs without stopping the stack.
 
-## Bounded Validation in the Console
+## Auth Scenario Continuous Traffic
 
-Use a bounded run to produce 20 signals per authentication mechanism and
-produce a finite console log that is easier to review. Start from an empty
-broker so the output only represents the current run:
+The auth scenario's traffic generators run continuously when
+`KAFKA_MAX_SIGNAL_COUNT` is unset. Set the scenario and clear the limit before
+using the shared startup steps:
 
 ```powershell
-docker compose @ComposeArgs down -v
-$Env:KAFKA_MAX_SIGNAL_COUNT = "20"
+$Env:KAFKA_SCENARIO = "auth"
+Remove-Item Env:KAFKA_MAX_SIGNAL_COUNT -ErrorAction SilentlyContinue
+```
 
-docker compose @ComposeArgs up -d --build
-if ($LASTEXITCODE -ne 0) {
-  throw "Kafka SASL/TLS stack startup failed."
-}
+The admin portal shows six pipelines. The dataflow logs contain repeated
+`RESOURCE` and `SCOPE` entries emitted by the console exporters.
+
+## Auth Scenario Bounded Validation
+
+Use a bounded run to produce 20 signals per authentication mechanism and
+produce a finite console log that is easier to review:
+
+```powershell
+$Env:KAFKA_SCENARIO = "auth"
+$Env:KAFKA_MAX_SIGNAL_COUNT = "20"
+```
+
+Use the shared startup steps, wait for the generators to reach their limits,
+then review the logs:
+
+```powershell
 Start-Sleep -Seconds 20
 docker compose @ComposeArgs logs --no-color df-engine
 ```
 
-The dataflow engine remains running after the generators reach their limits.
-Review the output for the three partition assignments and the finite set of
-decoded `RESOURCE` and `SCOPE` entries.
-
-Remove the environment override before returning to continuous validation:
-
-```powershell
-Remove-Item Env:KAFKA_MAX_SIGNAL_COUNT -ErrorAction SilentlyContinue
-```
-
-## Verify Either Flow
+## Verify the Auth Scenario
 
 Confirm that the admin endpoint responds, all three Kafka receivers acquired
 their partitions, and decoded telemetry reached the console exporters:
@@ -224,6 +224,50 @@ To run the broker-only SASL/TLS preflight as an additional check:
 This script verifies the broker handshake for all three mechanisms. It does
 not exercise the otel-arrow exporter or receiver.
 
+## Syslog Scenario
+
+The syslog scenario runs this path:
+
+```text
+UDP RFC 5424 -> syslog receiver -> Kafka exporter -> syslog-logs
+             -> Kafka receiver -> console exporter
+```
+
+The syslog receiver parses each message before the Kafka exporter encodes it
+as OTLP protobuf. Kafka contains parsed OpenTelemetry logs, not the original
+raw syslog payload.
+
+Select the scenario and use the shared startup steps:
+
+```powershell
+$Env:KAFKA_SCENARIO = "syslog"
+```
+
+Send one RFC 5424 message on demand:
+
+```powershell
+& ./examples/kafka-e2e/scripts/Send-Syslog.ps1
+```
+
+Send custom content:
+
+```powershell
+& ./examples/kafka-e2e/scripts/Send-Syslog.ps1 `
+  -Message "application started"
+```
+
+Generate continuous traffic at five messages per second:
+
+```powershell
+& ./examples/kafka-e2e/scripts/Send-Syslog.ps1 `
+  -Continuous `
+  -MessagesPerSecond 5
+```
+
+Press `Ctrl-C` to stop continuous generation. In the dataflow logs, verify that
+the emitted records contain the printed message marker, `input.format` set to
+`rfc5424`, and `syslog.app_name` set to `test-app`.
+
 ## Troubleshooting
 
 Inspect service state and recent logs:
@@ -234,7 +278,7 @@ docker compose @ComposeArgs logs --no-color --tail 100 kafka
 docker compose @ComposeArgs logs --no-color --tail 100 df-engine
 ```
 
-If the portal shows the pipelines but no live traffic, confirm that the
+If the auth scenario shows pipelines but no live traffic, confirm that the
 `df-engine` service has `KAFKA_MAX_SIGNAL_COUNT=null`:
 
 ```powershell

@@ -6,7 +6,7 @@ services:
   df-engine:
     build:
       context: ../..
-      dockerfile: examples/kafka-sasl-tls/Dockerfile.dataflow
+      dockerfile: examples/kafka-e2e/Dockerfile.dataflow
       additional_contexts:
         otel-arrow: ../../../..
       args:

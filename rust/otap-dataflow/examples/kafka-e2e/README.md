@@ -72,8 +72,8 @@ in Docker.
 Run the following commands from `rust/otap-dataflow`:
 
 ```powershell
-$ComposeFile = "examples/kafka-sasl-tls/compose.yaml"
-$DataflowComposeFile = "examples/kafka-sasl-tls/compose.dataflow.yaml"
+$ComposeFile = "examples/kafka-e2e/compose.yaml"
+$DataflowComposeFile = "examples/kafka-e2e/compose.dataflow.yaml"
 $ComposeArgs = @("-f", $ComposeFile, "-f", $DataflowComposeFile)
 
 docker compose @ComposeArgs config --quiet
@@ -143,8 +143,8 @@ pipelines:
 
 ```powershell
 docker compose `
-  -f examples/kafka-sasl-tls/compose.yaml `
-  -f examples/kafka-sasl-tls/compose.dataflow.yaml `
+  -f examples/kafka-e2e/compose.yaml `
+  -f examples/kafka-e2e/compose.dataflow.yaml `
   logs --follow --no-color df-engine
 ```
 
@@ -218,7 +218,7 @@ receiver connected to Kafka and acquired its topic partition.
 To run the broker-only SASL/TLS preflight as an additional check:
 
 ```powershell
-& ./examples/kafka-sasl-tls/scripts/Test-KafkaAuth.ps1
+& ./examples/kafka-e2e/scripts/Test-KafkaAuth.ps1
 ```
 
 This script verifies the broker handshake for all three mechanisms. It does
@@ -261,6 +261,6 @@ Remove-Item Env:KAFKA_MAX_SIGNAL_COUNT -ErrorAction SilentlyContinue
 To also regenerate the local certificates on the next run:
 
 ```powershell
-Remove-Item -Recurse -Force examples/kafka-sasl-tls/certs `
+Remove-Item -Recurse -Force examples/kafka-e2e/certs `
   -ErrorAction SilentlyContinue
 ```

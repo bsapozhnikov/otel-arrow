@@ -36,7 +36,7 @@ groups:
                   username: "plain"
                   password: "plain-secret"
               tls:
-                ca_file: "${env:KAFKA_CA_FILE:-examples/kafka-sasl-tls/certs/ca.crt}"
+                ca_file: "${env:KAFKA_CA_FILE:-examples/kafka-e2e/certs/ca.crt}"
         connections:
           - from: generator
             to: kafka
@@ -59,7 +59,7 @@ groups:
                   username: "plain"
                   password: "plain-secret"
               tls:
-                ca_file: "${env:KAFKA_CA_FILE:-examples/kafka-sasl-tls/certs/ca.crt}"
+                ca_file: "${env:KAFKA_CA_FILE:-examples/kafka-e2e/certs/ca.crt}"
           console:
             type: exporter:console
             config: {}
@@ -95,7 +95,7 @@ groups:
                   username: "scram256"
                   password: "scram256-secret"
               tls:
-                ca_file: "${env:KAFKA_CA_FILE:-examples/kafka-sasl-tls/certs/ca.crt}"
+                ca_file: "${env:KAFKA_CA_FILE:-examples/kafka-e2e/certs/ca.crt}"
         connections:
           - from: generator
             to: kafka
@@ -118,7 +118,7 @@ groups:
                   username: "scram256"
                   password: "scram256-secret"
               tls:
-                ca_file: "${env:KAFKA_CA_FILE:-examples/kafka-sasl-tls/certs/ca.crt}"
+                ca_file: "${env:KAFKA_CA_FILE:-examples/kafka-e2e/certs/ca.crt}"
           console:
             type: exporter:console
             config: {}
@@ -154,7 +154,7 @@ groups:
                   username: "scram512"
                   password: "scram512-secret"
               tls:
-                ca_file: "${env:KAFKA_CA_FILE:-examples/kafka-sasl-tls/certs/ca.crt}"
+                ca_file: "${env:KAFKA_CA_FILE:-examples/kafka-e2e/certs/ca.crt}"
         connections:
           - from: generator
             to: kafka
@@ -177,7 +177,7 @@ groups:
                   username: "scram512"
                   password: "scram512-secret"
               tls:
-                ca_file: "${env:KAFKA_CA_FILE:-examples/kafka-sasl-tls/certs/ca.crt}"
+                ca_file: "${env:KAFKA_CA_FILE:-examples/kafka-e2e/certs/ca.crt}"
           console:
             type: exporter:console
             config: {}

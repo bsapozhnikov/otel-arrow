@@ -28,7 +28,7 @@ case "${KAFKA_SCENARIO:-auth}" in
     ;;
   syslog)
     create_topic syslog-logs
-    create_topic syslog-raw
+    create_topic syslog-raw-rsyslog
     create_topic syslog-raw-logstash
     echo "Created syslog scenario topics."
     ;;

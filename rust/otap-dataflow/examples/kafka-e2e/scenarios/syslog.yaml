@@ -65,17 +65,17 @@ groups:
           - from: kafka
             to: console
 
-      syslog-raw-consumer:
+      syslog-raw-rsyslog-consumer:
         nodes:
           kafka:
             type: receiver:kafka
             config:
               brokers: "${env:KAFKA_BROKERS:-localhost:9093}"
-              group_id: "otap-syslog-raw-consumer"
-              client_id: "otap-syslog-raw-consumer"
+              group_id: "otap-syslog-raw-rsyslog-consumer"
+              client_id: "otap-syslog-raw-rsyslog-consumer"
               auto_offset_reset: earliest
               logs:
-                topics: ["syslog-raw"]
+                topics: ["syslog-raw-rsyslog"]
                 encoding: otlp_proto
               auth:
                 sasl:

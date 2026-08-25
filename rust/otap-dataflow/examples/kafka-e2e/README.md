@@ -10,60 +10,6 @@ configurations live in `scenarios/` and are selected with the
 | `auth` | Synthetic OTLP logs through three SASL-over-TLS mechanisms |
 | `syslog` | RFC 5424 through parsed OTLP and raw rsyslog Kafka paths |
 
-The default `auth` scenario sends OTLP protobuf logs through three independent
-SASL-over-TLS paths:
-
-| Mechanism | Topic | Consumer group |
-| --- | --- | --- |
-| `PLAIN` | `otlp-logs-plain` | `otap-plain-consumer` |
-| `SCRAM-SHA-256` | `otlp-logs-scram-256` | `otap-scram-256-consumer` |
-| `SCRAM-SHA-512` | `otlp-logs-scram-512` | `otap-scram-512-consumer` |
-
-## Auth Scenario Flow
-
-The configuration runs this path independently for `PLAIN`, `SCRAM-SHA-256`,
-and `SCRAM-SHA-512`:
-
-```mermaid
-flowchart LR
-    subgraph producer[Producer pipeline]
-        generator[Traffic generator]
-        kafka_exporter[Kafka exporter]
-        generator -->|Synthetic OTLP logs| kafka_exporter
-    end
-
-    subgraph broker[Kafka broker]
-        topic[Mechanism-specific topic]
-    end
-
-    subgraph consumer[Consumer pipeline]
-        kafka_receiver[Kafka receiver]
-        console[Console exporter]
-        kafka_receiver -->|Decoded OTLP logs| console
-    end
-
-    kafka_exporter -->|Produce with SASL over TLS| topic
-    topic -->|Consume with SASL over TLS| kafka_receiver
-```
-
-Each mechanism has a producer pipeline and a consumer pipeline, resulting in
-the six pipelines shown in the admin portal:
-
-- The traffic generator creates synthetic logs at five signals per second.
-- The Kafka exporter encodes the logs as OTLP protobuf and authenticates to
-  the broker.
-- The Kafka receiver authenticates independently, consumes the matching topic,
-  and decodes the OTLP protobuf messages.
-- The console exporter prints the decoded logs.
-
-SASL authentication is configured on each Kafka exporter and receiver. The
-topics do not have authentication settings, and this example does not
-configure Kafka ACLs. It validates client authentication, not per-topic
-authorization.
-
-The fixed credentials and generated certificates are for local development
-only.
-
 ## Prerequisites
 
 - Docker Desktop using Linux containers
@@ -147,7 +93,63 @@ docker compose `
 
 Press `Ctrl-C` to stop following the logs without stopping the stack.
 
-## Auth Scenario Continuous Traffic
+## Auth Scenario
+
+### Authentication Flow
+
+The default `auth` scenario sends OTLP protobuf logs through three independent
+SASL-over-TLS paths:
+
+| Mechanism | Topic | Consumer group |
+| --- | --- | --- |
+| `PLAIN` | `otlp-logs-plain` | `otap-plain-consumer` |
+| `SCRAM-SHA-256` | `otlp-logs-scram-256` | `otap-scram-256-consumer` |
+| `SCRAM-SHA-512` | `otlp-logs-scram-512` | `otap-scram-512-consumer` |
+
+The configuration runs this path independently for `PLAIN`, `SCRAM-SHA-256`,
+and `SCRAM-SHA-512`:
+
+```mermaid
+flowchart LR
+    subgraph producer[Producer pipeline]
+        generator[Traffic generator]
+        kafka_exporter[Kafka exporter]
+        generator -->|Synthetic OTLP logs| kafka_exporter
+    end
+
+    subgraph broker[Kafka broker]
+        topic[Mechanism-specific topic]
+    end
+
+    subgraph consumer[Consumer pipeline]
+        kafka_receiver[Kafka receiver]
+        console[Console exporter]
+        kafka_receiver -->|Decoded OTLP logs| console
+    end
+
+    kafka_exporter -->|Produce with SASL over TLS| topic
+    topic -->|Consume with SASL over TLS| kafka_receiver
+```
+
+Each mechanism has a producer pipeline and a consumer pipeline, resulting in
+the six pipelines shown in the admin portal:
+
+- The traffic generator creates synthetic logs at five signals per second.
+- The Kafka exporter encodes the logs as OTLP protobuf and authenticates to
+  the broker.
+- The Kafka receiver authenticates independently, consumes the matching topic,
+  and decodes the OTLP protobuf messages.
+- The console exporter prints the decoded logs.
+
+SASL authentication is configured on each Kafka exporter and receiver. The
+topics do not have authentication settings, and this example does not
+configure Kafka ACLs. It validates client authentication, not per-topic
+authorization.
+
+The fixed credentials and generated certificates are for local development
+only.
+
+### Continuous Traffic
 
 The auth scenario's traffic generators run continuously when
 `KAFKA_MAX_SIGNAL_COUNT` is unset. Set the scenario and clear the limit before
@@ -161,7 +163,7 @@ Remove-Item Env:KAFKA_MAX_SIGNAL_COUNT -ErrorAction SilentlyContinue
 The admin portal shows six pipelines. The dataflow logs contain repeated
 `RESOURCE` and `SCOPE` entries emitted by the console exporters.
 
-## Auth Scenario Bounded Validation
+### Bounded Validation
 
 Use a bounded run to produce 20 signals per authentication mechanism and
 produce a finite console log that is easier to review:
@@ -179,7 +181,7 @@ Start-Sleep -Seconds 20
 docker compose @ComposeArgs logs --no-color df-engine
 ```
 
-## Verify the Auth Scenario
+### Authentication Verification
 
 Confirm that the admin endpoint responds, all three Kafka receivers acquired
 their partitions, and decoded telemetry reached the console exporters:
@@ -226,6 +228,8 @@ not exercise the otel-arrow exporter or receiver.
 
 ## Syslog Scenario
 
+### Syslog Flow
+
 The syslog scenario runs this path:
 
 ```text
@@ -259,6 +263,8 @@ Select the scenario and use the shared startup steps:
 $Env:KAFKA_SCENARIO = "syslog"
 ```
 
+### Message Generation
+
 Send one RFC 5424 message through otel-arrow:
 
 ```powershell
@@ -290,6 +296,8 @@ Generate continuous traffic through either target:
 ```
 
 Press `Ctrl-C` to stop continuous generation.
+
+### Syslog Verification
 
 For the otel-arrow target, verify that the dataflow logs contain the printed
 message marker, `input.format` set to `rfc5424`, and `syslog.app_name` set to

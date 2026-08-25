@@ -236,7 +236,7 @@ The syslog scenario runs this path:
 UDP RFC 5424 -> syslog receiver -> Kafka exporter -> syslog-logs
              -> Kafka receiver -> console exporter
 
-UDP RFC 5424 -> rsyslog -> syslog-raw
+UDP RFC 5424 -> rsyslog -> syslog-raw-rsyslog
              -> Kafka receiver (OTLP decode attempt) -X-> console exporter
 
 UDP RFC 5424 -> Logstash -> syslog-raw-logstash
@@ -282,30 +282,26 @@ Send one RFC 5424 message through otel-arrow:
 Send one RFC 5424 message directly through rsyslog:
 
 ```powershell
-& ./examples/kafka-e2e/scripts/Send-Syslog.ps1 `
-  -Target Rsyslog
+& ./examples/kafka-e2e/scripts/Send-Syslog.ps1 -Target Rsyslog
 ```
 
 Send one RFC 5424 message directly through Logstash:
 
 ```powershell
-& ./examples/kafka-e2e/scripts/Send-Syslog.ps1 `
-  -Target Logstash
+& ./examples/kafka-e2e/scripts/Send-Syslog.ps1 -Target Logstash
 ```
 
 `OtelArrow` is the default target. All targets support custom content:
 
 ```powershell
-& ./examples/kafka-e2e/scripts/Send-Syslog.ps1 `
-  -Target Rsyslog `
+& ./examples/kafka-e2e/scripts/Send-Syslog.ps1 -Target Rsyslog `
   -Message "application started"
 ```
 
 Generate continuous traffic through any target:
 
 ```powershell
-& ./examples/kafka-e2e/scripts/Send-Syslog.ps1 `
-  -Target OtelArrow `
+& ./examples/kafka-e2e/scripts/Send-Syslog.ps1 -Target OtelArrow `
   -Continuous `
   -MessagesPerSecond 5
 ```
@@ -321,7 +317,7 @@ message marker, `input.format` set to `rfc5424`, and `syslog.app_name` set to
 For the rsyslog and Logstash targets, read the original messages from Kafka:
 
 ```powershell
-$RawTopics = @("syslog-raw", "syslog-raw-logstash")
+$RawTopics = @("syslog-raw-rsyslog", "syslog-raw-logstash")
 $RawTopics | ForEach-Object {
   docker compose @ComposeArgs exec kafka `
     kafka-console-consumer `
@@ -339,7 +335,7 @@ are reported:
 ```powershell
 $Logs = docker compose @ComposeArgs logs --no-color df-engine
 $Logs | Select-String -Pattern `
-  "pipeline.id=syslog-raw-consumer", `
+  "pipeline.id=syslog-raw-rsyslog-consumer", `
   "pipeline.id=syslog-raw-logstash-consumer", `
   "console.logs_view.otlp_create_failed", `
   "InvalidProtobufWireFormat"

@@ -238,12 +238,20 @@ UDP RFC 5424 -> syslog receiver -> Kafka exporter -> syslog-logs
 
 UDP RFC 5424 -> rsyslog -> syslog-raw
              -> Kafka receiver (OTLP decode attempt) -X-> console exporter
+
+UDP RFC 5424 -> Logstash -> syslog-raw-logstash
+             -> Kafka receiver (OTLP decode attempt) -X-> console exporter
 ```
 
 The syslog receiver parses each message before the Kafka exporter encodes it
 as OTLP protobuf. Kafka contains parsed OpenTelemetry logs, not the original
 raw syslog payload. The rsyslog path publishes the original RFC 5424 message
 to Kafka without using otel-arrow.
+
+The Logstash path performs the same raw forwarding through an independent
+implementation. Its UDP input uses the plain codec, and its Kafka output
+explicitly formats only `%{message}` so Logstash does not prepend its default
+timestamp and hostname.
 
 The raw consumer intentionally configures `otlp_proto`, the only applicable
 Kafka log encoding currently available. The Kafka receiver forwards the bytes
@@ -278,7 +286,14 @@ Send one RFC 5424 message directly through rsyslog:
   -Target Rsyslog
 ```
 
-`OtelArrow` is the default target. Both targets support custom content:
+Send one RFC 5424 message directly through Logstash:
+
+```powershell
+& ./examples/kafka-e2e/scripts/Send-Syslog.ps1 `
+  -Target Logstash
+```
+
+`OtelArrow` is the default target. All targets support custom content:
 
 ```powershell
 & ./examples/kafka-e2e/scripts/Send-Syslog.ps1 `
@@ -286,7 +301,7 @@ Send one RFC 5424 message directly through rsyslog:
   -Message "application started"
 ```
 
-Generate continuous traffic through either target:
+Generate continuous traffic through any target:
 
 ```powershell
 & ./examples/kafka-e2e/scripts/Send-Syslog.ps1 `
@@ -303,24 +318,29 @@ For the otel-arrow target, verify that the dataflow logs contain the printed
 message marker, `input.format` set to `rfc5424`, and `syslog.app_name` set to
 `test-app`.
 
-For the rsyslog target, read the original message from Kafka:
+For the rsyslog and Logstash targets, read the original messages from Kafka:
 
 ```powershell
-docker compose @ComposeArgs exec kafka `
-  kafka-console-consumer `
-  --bootstrap-server kafka:29092 `
-  --topic syslog-raw `
-  --from-beginning `
-  --max-messages 1
+$RawTopics = @("syslog-raw", "syslog-raw-logstash")
+$RawTopics | ForEach-Object {
+  docker compose @ComposeArgs exec kafka `
+    kafka-console-consumer `
+    --bootstrap-server kafka:29092 `
+    --topic $_ `
+    --from-beginning `
+    --max-messages 1
+}
 ```
 
-The same message is offered to `syslog-raw-consumer`. Confirm that its
-partition is assigned and the expected protobuf failure is reported:
+The raw messages are also offered to the corresponding otel-arrow consumers.
+Confirm that their partitions are assigned and the expected protobuf failures
+are reported:
 
 ```powershell
 $Logs = docker compose @ComposeArgs logs --no-color df-engine
 $Logs | Select-String -Pattern `
   "pipeline.id=syslog-raw-consumer", `
+  "pipeline.id=syslog-raw-logstash-consumer", `
   "console.logs_view.otlp_create_failed", `
   "InvalidProtobufWireFormat"
 ```
@@ -334,6 +354,7 @@ docker compose @ComposeArgs ps --all
 docker compose @ComposeArgs logs --no-color --tail 100 kafka
 docker compose @ComposeArgs logs --no-color --tail 100 df-engine
 docker compose @ComposeArgs logs --no-color --tail 100 rsyslog
+docker compose @ComposeArgs logs --no-color --tail 100 logstash
 ```
 
 If the auth scenario shows pipelines but no live traffic, confirm that the

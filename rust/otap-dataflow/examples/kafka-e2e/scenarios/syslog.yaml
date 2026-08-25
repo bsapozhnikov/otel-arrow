@@ -90,3 +90,29 @@ groups:
         connections:
           - from: kafka
             to: console
+
+      syslog-raw-logstash-consumer:
+        nodes:
+          kafka:
+            type: receiver:kafka
+            config:
+              brokers: "${env:KAFKA_BROKERS:-localhost:9093}"
+              group_id: "otap-syslog-raw-logstash-consumer"
+              client_id: "otap-syslog-raw-logstash-consumer"
+              auto_offset_reset: earliest
+              logs:
+                topics: ["syslog-raw-logstash"]
+                encoding: otlp_proto
+              auth:
+                sasl:
+                  mechanism: PLAIN
+                  username: "plain"
+                  password: "plain-secret"
+              tls:
+                ca_file: "${env:KAFKA_CA_FILE:-examples/kafka-e2e/certs/ca.crt}"
+          console:
+            type: exporter:console
+            config: {}
+        connections:
+          - from: kafka
+            to: console

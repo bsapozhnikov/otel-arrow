@@ -233,7 +233,7 @@ not exercise the otel-arrow exporter or receiver.
 The syslog scenario runs this path:
 
 ```text
-UDP RFC 5424 -> syslog receiver -> Kafka exporter -> syslog-logs
+UDP RFC 5424 -> syslog receiver -> Kafka exporter -> syslog-otlp-otel_arrow
              -> Kafka receiver -> console exporter
 
 UDP RFC 5424 -> rsyslog -> syslog-raw-rsyslog
@@ -242,8 +242,11 @@ UDP RFC 5424 -> rsyslog -> syslog-raw-rsyslog
 UDP RFC 5424 -> Logstash plain input -> syslog-raw-logstash
              -> Kafka receiver (OTLP decode attempt) -X-> console exporter
 
-UDP RFC 5424 -> Logstash syslog input -> syslog-parsed-logstash
+UDP RFC 5424 -> Logstash syslog input -> syslog-json-logstash
              -> Kafka receiver (OTLP decode attempt) -X-> console exporter
+
+UDP RFC 5424 -> Logstash syslog input -> OTLP protobuf -> syslog-otlp-logstash
+             -> Kafka receiver -> console exporter
 ```
 
 The syslog receiver parses each message before the Kafka exporter encodes it
@@ -259,6 +262,12 @@ default timestamp and hostname.
 The second Logstash path uses its syslog input to parse RFC 5424 fields and
 publishes the resulting Logstash event as JSON. This shows the difference
 between byte-preserving forwarding and Logstash-native syslog parsing.
+
+The third Logstash path maps the parsed event into an OTLP
+`ExportLogsServiceRequest`, encodes it with the protobuf codec, and publishes
+the bytes directly to Kafka. The scenario builds `Dockerfile.logstash` to add
+the codec and generate Ruby bindings from the repository's pinned
+OpenTelemetry proto revision.
 
 The non-OTLP consumers intentionally configure `otlp_proto`, the only
 applicable Kafka log encoding currently available. The Kafka receiver forwards
@@ -301,7 +310,13 @@ Send one RFC 5424 message through the Logstash plain input:
 Send one RFC 5424 message through the Logstash syslog input:
 
 ```powershell
-& ./examples/kafka-e2e/scripts/Send-Syslog.ps1 -Target LogstashParsed
+& ./examples/kafka-e2e/scripts/Send-Syslog.ps1 -Target LogstashJson
+```
+
+Send one RFC 5424 message as OTLP protobuf through Logstash:
+
+```powershell
+& ./examples/kafka-e2e/scripts/Send-Syslog.ps1 -Target LogstashOtlp
 ```
 
 `OtelArrow` is the default target. All targets support custom content:
@@ -310,6 +325,9 @@ Send one RFC 5424 message through the Logstash syslog input:
 & ./examples/kafka-e2e/scripts/Send-Syslog.ps1 -Target Rsyslog `
   -Message "application started"
 ```
+
+Without `-Message`, the generated message includes the destination topic name
+so records from different paths are easy to distinguish.
 
 Generate continuous traffic through any target:
 
@@ -323,15 +341,12 @@ Press `Ctrl-C` to stop continuous generation.
 
 ### Syslog Verification
 
-For the otel-arrow target, verify that the dataflow logs contain the printed
-message marker, `input.format` set to `rfc5424`, and `syslog.app_name` set to
-`test-app`.
-
 Select a topic and read its first message from Kafka:
 
 ```powershell
 $Topic = "syslog-raw-rsyslog"
-# Other choices: syslog-raw-logstash, syslog-parsed-logstash
+# Other choices: syslog-raw-logstash, syslog-json-logstash,
+#                syslog-otlp-otel_arrow, syslog-otlp-logstash
 docker compose @ComposeArgs exec kafka `
   kafka-console-consumer `
   --bootstrap-server kafka:29092 `
@@ -341,22 +356,47 @@ docker compose @ComposeArgs exec kafka `
 ```
 
 The `syslog-raw-rsyslog` and `syslog-raw-logstash` topics contain the original
-RFC 5424 string. The `syslog-parsed-logstash` topic contains the parsed
-Logstash event as JSON.
+RFC 5424 string. The `syslog-json-logstash` topic contains the parsed
+Logstash event as JSON. The `syslog-otlp-otel_arrow` and
+`syslog-otlp-logstash` topics contain OTLP protobuf
+`ExportLogsServiceRequest` messages. The Kafka console consumer displays
+those protobuf records as binary data.
 
 The raw and JSON messages are also offered to the corresponding otel-arrow
 consumers. Confirm that their partitions are assigned and the expected
 protobuf failures are reported:
 
 ```powershell
+[Console]::OutputEncoding = [Text.UTF8Encoding]::new()
 $Logs = docker compose @ComposeArgs logs --no-color df-engine
 $Logs | Select-String -Pattern `
   "pipeline.id=syslog-raw-rsyslog-consumer", `
   "pipeline.id=syslog-raw-logstash-consumer", `
-  "pipeline.id=syslog-parsed-logstash-consumer", `
+  "pipeline.id=syslog-json-logstash-consumer", `
   "console.logs_view.otlp_create_failed", `
   "InvalidProtobufWireFormat"
 ```
+
+The two OTLP topics are consumed successfully. Confirm that both topic
+partitions are assigned:
+
+```powershell
+$Logs | Select-String -Pattern `
+  "partitions=syslog-otlp-otel_arrow:", `
+  "partitions=syslog-otlp-logstash:"
+```
+
+Show each successful log record with its resource and scope:
+
+```powershell
+$Logs | Select-String -Pattern `
+  "syslog.message=kafka-syslog-e2e-syslog-otlp-otel_arrow-", `
+  "syslog.message=kafka-syslog-e2e-syslog-otlp-logstash-" `
+  -Context 2,0
+```
+
+Both paths use empty resources and scopes and should contain matching syslog
+attributes, including `input.format=rfc5424`.
 
 ## Troubleshooting
 

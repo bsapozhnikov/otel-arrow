@@ -25,7 +25,7 @@ groups:
               brokers: "${env:KAFKA_BROKERS:-localhost:9093}"
               client_id: "otap-syslog-producer"
               logs:
-                topic: "syslog-logs"
+                topic: "syslog-otlp-otel_arrow"
                 encoding: otlp_proto
               allow_auto_create_topics: false
               auth:
@@ -49,7 +49,7 @@ groups:
               client_id: "otap-syslog-consumer"
               auto_offset_reset: earliest
               logs:
-                topics: ["syslog-logs"]
+                topics: ["syslog-otlp-otel_arrow"]
                 encoding: otlp_proto
               auth:
                 sasl:
@@ -117,17 +117,43 @@ groups:
           - from: kafka
             to: console
 
-      syslog-parsed-logstash-consumer:
+      syslog-json-logstash-consumer:
         nodes:
           kafka:
             type: receiver:kafka
             config:
               brokers: "${env:KAFKA_BROKERS:-localhost:9093}"
-              group_id: "otap-syslog-parsed-logstash-consumer"
-              client_id: "otap-syslog-parsed-logstash-consumer"
+              group_id: "otap-syslog-json-logstash-consumer"
+              client_id: "otap-syslog-json-logstash-consumer"
               auto_offset_reset: earliest
               logs:
-                topics: ["syslog-parsed-logstash"]
+                topics: ["syslog-json-logstash"]
+                encoding: otlp_proto
+              auth:
+                sasl:
+                  mechanism: PLAIN
+                  username: "plain"
+                  password: "plain-secret"
+              tls:
+                ca_file: "${env:KAFKA_CA_FILE:-examples/kafka-e2e/certs/ca.crt}"
+          console:
+            type: exporter:console
+            config: {}
+        connections:
+          - from: kafka
+            to: console
+
+      syslog-otlp-logstash-consumer:
+        nodes:
+          kafka:
+            type: receiver:kafka
+            config:
+              brokers: "${env:KAFKA_BROKERS:-localhost:9093}"
+              group_id: "otap-syslog-otlp-logstash-consumer"
+              client_id: "otap-syslog-otlp-logstash-consumer"
+              auto_offset_reset: earliest
+              logs:
+                topics: ["syslog-otlp-logstash"]
                 encoding: otlp_proto
               auth:
                 sasl:

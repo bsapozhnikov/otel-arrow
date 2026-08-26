@@ -327,31 +327,22 @@ For the otel-arrow target, verify that the dataflow logs contain the printed
 message marker, `input.format` set to `rfc5424`, and `syslog.app_name` set to
 `test-app`.
 
-For the rsyslog and Logstash plain-input targets, read the original messages
-from Kafka:
+Select a topic and read its first message from Kafka:
 
 ```powershell
-$RawTopics = @("syslog-raw-rsyslog", "syslog-raw-logstash")
-$RawTopics | ForEach-Object {
-  docker compose @ComposeArgs exec kafka `
-    kafka-console-consumer `
-    --bootstrap-server kafka:29092 `
-    --topic $_ `
-    --from-beginning `
-    --max-messages 1
-}
-```
-
-For the Logstash syslog-input target, read the parsed JSON event from Kafka:
-
-```powershell
+$Topic = "syslog-raw-rsyslog"
+# Other choices: syslog-raw-logstash, syslog-parsed-logstash
 docker compose @ComposeArgs exec kafka `
   kafka-console-consumer `
   --bootstrap-server kafka:29092 `
-  --topic syslog-parsed-logstash `
+  --topic $Topic `
   --from-beginning `
   --max-messages 1
 ```
+
+The `syslog-raw-rsyslog` and `syslog-raw-logstash` topics contain the original
+RFC 5424 string. The `syslog-parsed-logstash` topic contains the parsed
+Logstash event as JSON.
 
 The raw and JSON messages are also offered to the corresponding otel-arrow
 consumers. Confirm that their partitions are assigned and the expected

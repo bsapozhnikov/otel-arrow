@@ -239,7 +239,10 @@ UDP RFC 5424 -> syslog receiver -> Kafka exporter -> syslog-logs
 UDP RFC 5424 -> rsyslog -> syslog-raw-rsyslog
              -> Kafka receiver (OTLP decode attempt) -X-> console exporter
 
-UDP RFC 5424 -> Logstash -> syslog-raw-logstash
+UDP RFC 5424 -> Logstash plain input -> syslog-raw-logstash
+             -> Kafka receiver (OTLP decode attempt) -X-> console exporter
+
+UDP RFC 5424 -> Logstash syslog input -> syslog-parsed-logstash
              -> Kafka receiver (OTLP decode attempt) -X-> console exporter
 ```
 
@@ -248,18 +251,22 @@ as OTLP protobuf. Kafka contains parsed OpenTelemetry logs, not the original
 raw syslog payload. The rsyslog path publishes the original RFC 5424 message
 to Kafka without using otel-arrow.
 
-The Logstash path performs the same raw forwarding through an independent
-implementation. Its UDP input uses the plain codec, and its Kafka output
-explicitly formats only `%{message}` so Logstash does not prepend its default
-timestamp and hostname.
+The Logstash plain-input path performs the same raw forwarding through an
+independent implementation. Its UDP input uses the plain codec, and its Kafka
+output explicitly formats only `%{message}` so Logstash does not prepend its
+default timestamp and hostname.
 
-The raw consumer intentionally configures `otlp_proto`, the only applicable
-Kafka log encoding currently available. The Kafka receiver forwards the bytes
-as an OTLP payload without eagerly validating the protobuf wire format. The
-console exporter then emits `console.logs_view.otlp_create_failed` with
-`InvalidProtobufWireFormat`. This pipeline makes the unsupported raw-syslog
-consumption path observable while keeping the engine and parsed OTLP path
-running.
+The second Logstash path uses its syslog input to parse RFC 5424 fields and
+publishes the resulting Logstash event as JSON. This shows the difference
+between byte-preserving forwarding and Logstash-native syslog parsing.
+
+The non-OTLP consumers intentionally configure `otlp_proto`, the only
+applicable Kafka log encoding currently available. The Kafka receiver forwards
+the bytes as an OTLP payload without eagerly validating the protobuf wire
+format. The console exporter then emits
+`console.logs_view.otlp_create_failed` with `InvalidProtobufWireFormat`. These
+pipelines make the unsupported raw and JSON consumption paths observable while
+keeping the engine and parsed OTLP path running.
 
 The standard rsyslog image does not include its Kafka output module. The
 scenario builds `Dockerfile.rsyslog`, which adds the `rsyslog-kafka` package
@@ -285,10 +292,16 @@ Send one RFC 5424 message directly through rsyslog:
 & ./examples/kafka-e2e/scripts/Send-Syslog.ps1 -Target Rsyslog
 ```
 
-Send one RFC 5424 message directly through Logstash:
+Send one RFC 5424 message through the Logstash plain input:
 
 ```powershell
-& ./examples/kafka-e2e/scripts/Send-Syslog.ps1 -Target Logstash
+& ./examples/kafka-e2e/scripts/Send-Syslog.ps1 -Target LogstashRaw
+```
+
+Send one RFC 5424 message through the Logstash syslog input:
+
+```powershell
+& ./examples/kafka-e2e/scripts/Send-Syslog.ps1 -Target LogstashParsed
 ```
 
 `OtelArrow` is the default target. All targets support custom content:
@@ -314,7 +327,8 @@ For the otel-arrow target, verify that the dataflow logs contain the printed
 message marker, `input.format` set to `rfc5424`, and `syslog.app_name` set to
 `test-app`.
 
-For the rsyslog and Logstash targets, read the original messages from Kafka:
+For the rsyslog and Logstash plain-input targets, read the original messages
+from Kafka:
 
 ```powershell
 $RawTopics = @("syslog-raw-rsyslog", "syslog-raw-logstash")
@@ -328,15 +342,27 @@ $RawTopics | ForEach-Object {
 }
 ```
 
-The raw messages are also offered to the corresponding otel-arrow consumers.
-Confirm that their partitions are assigned and the expected protobuf failures
-are reported:
+For the Logstash syslog-input target, read the parsed JSON event from Kafka:
+
+```powershell
+docker compose @ComposeArgs exec kafka `
+  kafka-console-consumer `
+  --bootstrap-server kafka:29092 `
+  --topic syslog-parsed-logstash `
+  --from-beginning `
+  --max-messages 1
+```
+
+The raw and JSON messages are also offered to the corresponding otel-arrow
+consumers. Confirm that their partitions are assigned and the expected
+protobuf failures are reported:
 
 ```powershell
 $Logs = docker compose @ComposeArgs logs --no-color df-engine
 $Logs | Select-String -Pattern `
   "pipeline.id=syslog-raw-rsyslog-consumer", `
   "pipeline.id=syslog-raw-logstash-consumer", `
+  "pipeline.id=syslog-parsed-logstash-consumer", `
   "console.logs_view.otlp_create_failed", `
   "InvalidProtobufWireFormat"
 ```

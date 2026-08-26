@@ -1,0 +1,35 @@
+FROM debian:bookworm-slim AS proto-build
+
+ARG OTEL_PROTO_REF=be5d58470429d0255ffdd49491f0815a3a63d6ef
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates curl protobuf-compiler \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN mkdir -p \
+      /src/opentelemetry/proto/collector/logs/v1 \
+      /src/opentelemetry/proto/common/v1 \
+      /src/opentelemetry/proto/logs/v1 \
+      /src/opentelemetry/proto/resource/v1 \
+      /out
+
+RUN curl -fsSL "https://raw.githubusercontent.com/open-telemetry/opentelemetry-proto/${OTEL_PROTO_REF}/opentelemetry/proto/collector/logs/v1/logs_service.proto" \
+      -o /src/opentelemetry/proto/collector/logs/v1/logs_service.proto \
+    && curl -fsSL "https://raw.githubusercontent.com/open-telemetry/opentelemetry-proto/${OTEL_PROTO_REF}/opentelemetry/proto/common/v1/common.proto" \
+      -o /src/opentelemetry/proto/common/v1/common.proto \
+    && curl -fsSL "https://raw.githubusercontent.com/open-telemetry/opentelemetry-proto/${OTEL_PROTO_REF}/opentelemetry/proto/logs/v1/logs.proto" \
+      -o /src/opentelemetry/proto/logs/v1/logs.proto \
+    && curl -fsSL "https://raw.githubusercontent.com/open-telemetry/opentelemetry-proto/${OTEL_PROTO_REF}/opentelemetry/proto/resource/v1/resource.proto" \
+      -o /src/opentelemetry/proto/resource/v1/resource.proto
+
+RUN protoc --proto_path=/src --ruby_out=/out \
+      /src/opentelemetry/proto/collector/logs/v1/logs_service.proto \
+      /src/opentelemetry/proto/common/v1/common.proto \
+      /src/opentelemetry/proto/logs/v1/logs.proto \
+      /src/opentelemetry/proto/resource/v1/resource.proto
+
+FROM docker.elastic.co/logstash/logstash:9.5.2
+
+RUN bin/logstash-plugin install --version 1.3.0 logstash-codec-protobuf
+
+COPY --from=proto-build /out /etc/logstash/otlp-proto

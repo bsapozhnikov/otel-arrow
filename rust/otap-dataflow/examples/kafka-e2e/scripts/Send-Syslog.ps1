@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-    [ValidateSet('OtelArrow', 'Rsyslog', 'LogstashRaw', 'LogstashParsed')]
+    [ValidateSet('OtelArrow', 'Rsyslog', 'LogstashRaw', 'LogstashJson', 'LogstashOtlp')]
     [string]$Target = 'OtelArrow',
 
     [switch]$Continuous,
@@ -17,12 +17,15 @@ $ErrorActionPreference = 'Stop'
 $udp = [Net.Sockets.UdpClient]::new()
 $sequence = 0
 $delayMilliseconds = [Math]::Max(1, [int](1000 / $MessagesPerSecond))
-$port = switch ($Target) {
-    'OtelArrow' { 5514 }
-    'Rsyslog' { 5515 }
-    'LogstashRaw' { 5516 }
-    'LogstashParsed' { 5517 }
+$targetConfig = switch ($Target) {
+    'OtelArrow' { @{ Port = 5514; Topic = 'syslog-otlp-otel_arrow' } }
+    'Rsyslog' { @{ Port = 5515; Topic = 'syslog-raw-rsyslog' } }
+    'LogstashRaw' { @{ Port = 5516; Topic = 'syslog-raw-logstash' } }
+    'LogstashJson' { @{ Port = 5517; Topic = 'syslog-json-logstash' } }
+    'LogstashOtlp' { @{ Port = 5518; Topic = 'syslog-otlp-logstash' } }
 }
+$port = $targetConfig.Port
+$topic = $targetConfig.Topic
 
 try {
     do {
@@ -31,7 +34,7 @@ try {
             $Message
         }
         else {
-            "kafka-syslog-e2e-$([Guid]::NewGuid().ToString('N'))-$sequence"
+            "kafka-syslog-e2e-${topic}-$([Guid]::NewGuid().ToString('N'))-$sequence"
         }
         $timestamp = [DateTime]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ss.fffZ')
         $syslog = "<34>1 $timestamp test-host test-app 123 ID47 - $body"

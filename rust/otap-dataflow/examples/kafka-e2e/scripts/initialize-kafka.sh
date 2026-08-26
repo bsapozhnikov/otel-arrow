@@ -27,10 +27,11 @@ case "${KAFKA_SCENARIO:-auth}" in
     echo "Created SCRAM users and OTLP log topics."
     ;;
   syslog)
-    create_topic syslog-logs
+    create_topic syslog-otlp-otel_arrow
     create_topic syslog-raw-rsyslog
     create_topic syslog-raw-logstash
-    create_topic syslog-parsed-logstash
+    create_topic syslog-json-logstash
+    create_topic syslog-otlp-logstash
     echo "Created syslog scenario topics."
     ;;
   *)

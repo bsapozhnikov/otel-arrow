@@ -17,7 +17,9 @@ services:
       - 127.0.0.1:5515:5515/udp
 
   logstash:
-    image: docker.elastic.co/logstash/logstash:9.5.2
+    build:
+      context: .
+      dockerfile: Dockerfile.logstash
     depends_on:
       kafka-init:
         condition: service_completed_successfully
@@ -31,6 +33,8 @@ services:
       - 127.0.0.1:5516:5516/udp
       - 127.0.0.1:5517:5517
       - 127.0.0.1:5517:5517/udp
+      - 127.0.0.1:5518:5518
+      - 127.0.0.1:5518:5518/udp
 
   df-engine:
     build:

@@ -29,6 +29,8 @@ services:
       - ./certs/kafka.truststore.jks:/etc/kafka/certs/kafka.truststore.jks:ro
     ports:
       - 127.0.0.1:5516:5516/udp
+      - 127.0.0.1:5517:5517
+      - 127.0.0.1:5517:5517/udp
 
   df-engine:
     build:

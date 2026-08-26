@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-    [ValidateSet('OtelArrow', 'Rsyslog', 'Logstash')]
+    [ValidateSet('OtelArrow', 'Rsyslog', 'LogstashRaw', 'LogstashParsed')]
     [string]$Target = 'OtelArrow',
 
     [switch]$Continuous,
@@ -20,7 +20,8 @@ $delayMilliseconds = [Math]::Max(1, [int](1000 / $MessagesPerSecond))
 $port = switch ($Target) {
     'OtelArrow' { 5514 }
     'Rsyslog' { 5515 }
-    'Logstash' { 5516 }
+    'LogstashRaw' { 5516 }
+    'LogstashParsed' { 5517 }
 }
 
 try {

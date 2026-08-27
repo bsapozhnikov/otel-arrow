@@ -35,7 +35,8 @@ if ($LASTEXITCODE -ne 0) {
 
 Both Compose files are required for the end-to-end validation flows:
 
-- `compose.yaml` defines certificate generation, Kafka, users, and topics.
+- `compose.yaml` defines certificate generation, Kafka, users, topics, and the
+  Redpanda Console.
 - `compose.dataflow.yaml` adds the dataflow engine, admin portal,
   container-network settings, selectable scenario, and traffic limit.
 
@@ -81,6 +82,9 @@ The first image build can take several minutes. Docker reuses the Cargo build
 caches on later builds.
 
 Open <http://127.0.0.1:8080/> to view the selected scenario's pipelines.
+
+Open <http://127.0.0.1:8082/> to browse Kafka topics, messages, partitions,
+consumer groups, offsets, and lag in Redpanda Console.
 
 Follow the dataflow logs in another PowerShell terminal:
 
@@ -341,7 +345,20 @@ Press `Ctrl-C` to stop continuous generation.
 
 ### Syslog Verification
 
-Select a topic and read its first message from Kafka:
+Open <http://127.0.0.1:8082/topics> in Redpanda Console. Confirm that the five
+syslog topics are present, select a topic, and open its **Messages** tab to
+inspect the records:
+
+- `syslog-raw-rsyslog` and `syslog-raw-logstash` contain the original RFC 5424
+  string.
+- `syslog-json-logstash` contains the parsed Logstash event as JSON.
+- `syslog-otlp-otel_arrow` and `syslog-otlp-logstash` contain OTLP protobuf
+  `ExportLogsServiceRequest` messages and appear as binary data.
+
+The **Consumer Groups** view can also be used to inspect group membership,
+partition assignments, committed offsets, and lag.
+
+To read the first record from a topic using the command line instead:
 
 ```powershell
 $Topic = "syslog-raw-rsyslog"
@@ -354,13 +371,6 @@ docker compose @ComposeArgs exec kafka `
   --from-beginning `
   --max-messages 1
 ```
-
-The `syslog-raw-rsyslog` and `syslog-raw-logstash` topics contain the original
-RFC 5424 string. The `syslog-json-logstash` topic contains the parsed
-Logstash event as JSON. The `syslog-otlp-otel_arrow` and
-`syslog-otlp-logstash` topics contain OTLP protobuf
-`ExportLogsServiceRequest` messages. The Kafka console consumer displays
-those protobuf records as binary data.
 
 The raw and JSON messages are also offered to the corresponding otel-arrow
 consumers. Confirm that their partitions are assigned and the expected

@@ -1,0 +1,66 @@
+services:
+  kafka:
+    environment:
+      KAFKA_ADVERTISED_LISTENERS: BROKER://kafka:29092,SASL_SSL://kafka:9093
+
+  rsyslog:
+    build:
+      context: .
+      dockerfile: Dockerfile.rsyslog
+    depends_on:
+      kafka-init:
+        condition: service_completed_successfully
+    volumes:
+      - ./rsyslog.conf:/etc/rsyslog.conf:ro
+      - ./certs:/etc/kafka/certs:ro
+    ports:
+      - 127.0.0.1:5515:5515/udp
+
+  logstash:
+    build:
+      context: .
+      dockerfile: Dockerfile.logstash
+    depends_on:
+      kafka-init:
+        condition: service_completed_successfully
+    environment:
+      LS_JAVA_OPTS: "-Xms256m -Xmx256m"
+      XPACK_MONITORING_ENABLED: "false"
+    volumes:
+      - ./logstash.conf:/usr/share/logstash/pipeline/logstash.conf:ro
+      - ./certs/kafka.truststore.jks:/etc/kafka/certs/kafka.truststore.jks:ro
+    ports:
+      - 127.0.0.1:5516:5516/udp
+      - 127.0.0.1:5517:5517
+      - 127.0.0.1:5517:5517/udp
+      - 127.0.0.1:5518:5518
+      - 127.0.0.1:5518:5518/udp
+
+  df-engine:
+    build:
+      context: ../..
+      dockerfile: examples/kafka-e2e/Dockerfile.dataflow
+      additional_contexts:
+        otel-arrow: ../../../..
+      args:
+        FEATURES: kafka-receiver,otap-df-contrib-nodes/kafka-exporter
+    depends_on:
+      kafka-init:
+        condition: service_completed_successfully
+    environment:
+      KAFKA_BROKERS: kafka:9093
+      KAFKA_CA_FILE: /etc/kafka/certs/ca.crt
+      KAFKA_MAX_SIGNAL_COUNT: "${KAFKA_MAX_SIGNAL_COUNT:-null}"
+    volumes:
+      - ./scenarios/${KAFKA_SCENARIO:-auth}.yaml:/etc/otel/kafka-scenario.yaml:ro
+      - ./certs:/etc/kafka/certs:ro
+    command:
+      - --config
+      - /etc/otel/kafka-scenario.yaml
+      - --num-cores
+      - "1"
+      - --http-admin-bind
+      - 0.0.0.0:8080
+    ports:
+      - 127.0.0.1:8080:8080
+      - 127.0.0.1:5514:5514/udp

@@ -244,7 +244,7 @@ UDP RFC 5424 -> rsyslog -> syslog-raw-rsyslog
              -> Kafka receiver (OTLP decode attempt) -X-> console exporter
 
 UDP RFC 5424 -> Logstash plain input -> syslog-raw-logstash
-             -> Kafka receiver (OTLP decode attempt) -X-> console exporter
+             -> Kafka receiver (Syslog decode) -> console exporter
 
 UDP RFC 5424 -> Logstash syslog input -> syslog-json-logstash
              -> Kafka receiver (OTLP decode attempt) -X-> console exporter
@@ -273,13 +273,15 @@ the bytes directly to Kafka. The scenario builds `Dockerfile.logstash` to add
 the codec and generate Ruby bindings from the repository's pinned
 OpenTelemetry proto revision.
 
-The non-OTLP consumers intentionally configure `otlp_proto`, the only
-applicable Kafka log encoding currently available. The Kafka receiver forwards
-the bytes as an OTLP payload without eagerly validating the protobuf wire
-format. The console exporter then emits
+The raw Logstash consumer configures the Kafka receiver's `syslog` encoding,
+which parses the original RFC 5424 payload into an OpenTelemetry log record.
+
+The raw rsyslog and JSON consumers intentionally configure `otlp_proto`.
+The Kafka receiver forwards those bytes as an OTLP payload without eagerly
+validating the protobuf wire format. The console exporter then emits
 `console.logs_view.otlp_create_failed` with `InvalidProtobufWireFormat`. These
-pipelines make the unsupported raw and JSON consumption paths observable while
-keeping the engine and parsed OTLP path running.
+pipelines keep the unsupported raw rsyslog and JSON consumption paths
+observable while the raw Logstash Syslog and parsed OTLP paths succeed.
 
 The standard rsyslog image does not include its Kafka output module. The
 scenario builds `Dockerfile.rsyslog`, which adds the `rsyslog-kafka` package
@@ -372,26 +374,26 @@ docker compose @ComposeArgs exec kafka `
   --max-messages 1
 ```
 
-The raw and JSON messages are also offered to the corresponding otel-arrow
-consumers. Confirm that their partitions are assigned and the expected
-protobuf failures are reported:
+The raw rsyslog and JSON messages are also offered to the corresponding
+otel-arrow consumers. Confirm that their partitions are assigned and the
+expected protobuf failures are reported:
 
 ```powershell
 [Console]::OutputEncoding = [Text.UTF8Encoding]::new()
 $Logs = docker compose @ComposeArgs logs --no-color df-engine
 $Logs | Select-String -Pattern `
   "pipeline.id=syslog-raw-rsyslog-consumer", `
-  "pipeline.id=syslog-raw-logstash-consumer", `
   "pipeline.id=syslog-json-logstash-consumer", `
   "console.logs_view.otlp_create_failed", `
   "InvalidProtobufWireFormat"
 ```
 
-The two OTLP topics are consumed successfully. Confirm that both topic
-partitions are assigned:
+The raw Logstash and two OTLP topics are consumed successfully. Confirm that
+all three topic partitions are assigned:
 
 ```powershell
 $Logs | Select-String -Pattern `
+  "partitions=syslog-raw-logstash:", `
   "partitions=syslog-otlp-otel_arrow:", `
   "partitions=syslog-otlp-logstash:"
 ```
@@ -400,13 +402,14 @@ Show each successful log record with its resource and scope:
 
 ```powershell
 $Logs | Select-String -Pattern `
+  "syslog.message=kafka-syslog-e2e-syslog-raw-logstash-", `
   "syslog.message=kafka-syslog-e2e-syslog-otlp-otel_arrow-", `
   "syslog.message=kafka-syslog-e2e-syslog-otlp-logstash-" `
   -Context 2,0
 ```
 
-Both paths use empty resources and scopes and should contain matching syslog
-attributes, including `input.format=rfc5424`.
+All three paths use empty resources and scopes and should contain matching
+syslog attributes, including `input.format=rfc5424`.
 
 ## Troubleshooting
 

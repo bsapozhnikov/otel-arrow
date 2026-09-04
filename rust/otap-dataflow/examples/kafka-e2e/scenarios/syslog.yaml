@@ -102,7 +102,7 @@ groups:
               auto_offset_reset: earliest
               logs:
                 topics: ["syslog-raw-logstash"]
-                encoding: otlp_proto
+                encoding: syslog
               auth:
                 sasl:
                   mechanism: PLAIN

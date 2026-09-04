@@ -28,7 +28,7 @@ services:
       XPACK_MONITORING_ENABLED: "false"
     volumes:
       - ./logstash.conf:/usr/share/logstash/pipeline/logstash.conf:ro
-      - ./certs/kafka.truststore.jks:/etc/kafka/certs/kafka.truststore.jks:ro
+      - ./certs:/etc/kafka/certs:ro
     ports:
       - 127.0.0.1:5516:5516/udp
       - 127.0.0.1:5517:5517
@@ -43,7 +43,7 @@ services:
       additional_contexts:
         otel-arrow: ../../../..
       args:
-        FEATURES: kafka-receiver,otap-df-contrib-nodes/kafka-exporter
+        FEATURES: kafka-receiver,kafka-exporter
     depends_on:
       kafka-init:
         condition: service_completed_successfully

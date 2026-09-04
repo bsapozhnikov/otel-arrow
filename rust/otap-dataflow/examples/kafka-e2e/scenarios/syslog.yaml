@@ -76,7 +76,7 @@ groups:
               auto_offset_reset: earliest
               logs:
                 topics: ["syslog-raw-rsyslog"]
-                encoding: otlp_proto
+                encoding: syslog
               auth:
                 sasl:
                   mechanism: PLAIN

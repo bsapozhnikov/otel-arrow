@@ -1,10 +1,14 @@
-FROM --platform=$BUILDPLATFORM docker.io/rust:1.97 AS dataflow-build
+ARG BUILD_IMAGE=docker.io/rust:1.97
+ARG RUNTIME_IMAGE=gcr.io/distroless/cc-debian13:nonroot
+
+FROM --platform=$BUILDPLATFORM ${BUILD_IMAGE} AS dataflow-build
 
 WORKDIR /build/rust/dataflow
 
 ARG BUILDPLATFORM
 ARG TARGETPLATFORM
 ARG FEATURES
+ARG BUILD_CACHE_SUFFIX=default
 ARG RUSTFLAGS="-C target-cpu=native"
 
 ENV FEATURES=${FEATURES}
@@ -21,13 +25,15 @@ COPY . /build/rust/dataflow/.
 
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/usr/local/cargo/git \
-    --mount=type=cache,target=/build/rust/dataflow/target \
+    --mount=type=cache,id=kafka-e2e-target-${BUILD_CACHE_SUFFIX},target=/build/rust/dataflow/target \
     sed -i 's/\r$//' cross-arch-build.sh && ./cross-arch-build.sh
 
-FROM gcr.io/distroless/cc-debian13:nonroot
+FROM ${RUNTIME_IMAGE}
+
+ARG RUNTIME_USER=nonroot
 
 WORKDIR /home/nonroot
-COPY --from=dataflow-build --chown=nonroot:nonroot /build/rust/dataflow/df_engine .
+COPY --from=dataflow-build --chown=${RUNTIME_USER}:${RUNTIME_USER} /build/rust/dataflow/df_engine .
 
-USER nonroot
+USER ${RUNTIME_USER}
 ENTRYPOINT ["/home/nonroot/df_engine"]

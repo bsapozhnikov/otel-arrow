@@ -2,13 +2,14 @@
 
 This example provides reusable Docker infrastructure for validating otel-arrow
 Kafka exporter and receiver pipelines against a real Kafka broker. Pipeline
-configurations live in `scenarios/` and are selected with the
-`KAFKA_SCENARIO` environment variable.
+configurations live in `scenarios/`, and the setup helper selects the matching
+Compose files and environment.
 
 | Scenario | Flow |
 | --- | --- |
 | `auth` | Synthetic OTLP logs through three SASL-over-TLS mechanisms |
 | `syslog` | RFC 5424 through parsed OTLP and raw rsyslog Kafka paths |
+| `syslog-la` | Raw RFC 5424 through Kafka into Azure Log Analytics |
 
 ## Prerequisites
 
@@ -18,14 +19,12 @@ configurations live in `scenarios/` and are selected with the
 All components, including the Kafka-enabled dataflow engine, are built and run
 in Docker.
 
-## Prepare the Stack
+## Set Up a Scenario
 
 Run the following commands from `rust/otap-dataflow`:
 
 ```powershell
-$ComposeFile = "examples/kafka-e2e/compose.yaml"
-$DataflowComposeFile = "examples/kafka-e2e/compose.dataflow.yaml"
-$ComposeArgs = @("-f", $ComposeFile, "-f", $DataflowComposeFile)
+$ComposeArgs = & ./examples/kafka-e2e/scripts/Setup-KafkaE2E.ps1 -Scenario auth
 
 docker compose @ComposeArgs config --quiet
 if ($LASTEXITCODE -ne 0) {
@@ -33,36 +32,16 @@ if ($LASTEXITCODE -ne 0) {
 }
 ```
 
-Both Compose files are required for the end-to-end validation flows:
-
-- `compose.yaml` defines certificate generation, Kafka, users, topics, and the
-  Redpanda Console.
-- `compose.dataflow.yaml` adds the dataflow engine, admin portal,
-  container-network settings, selectable scenario, and traffic limit.
-
-The Compose override configures the broker address and certificate path for
-the container network. It loads `scenarios/auth.yaml` by default.
-
-## Select a Scenario
-
-Leave `KAFKA_SCENARIO` unset to run the default `auth` scenario:
+The helper sets `KAFKA_SCENARIO` and returns the Compose arguments without
+starting containers. Run it again whenever switching scenarios:
 
 ```powershell
-Remove-Item Env:KAFKA_SCENARIO -ErrorAction SilentlyContinue
-docker compose @ComposeArgs config --quiet
+$ComposeArgs = & ./examples/kafka-e2e/scripts/Setup-KafkaE2E.ps1 -Scenario syslog
 ```
 
-To select a scenario explicitly, set the variable to the scenario file name
-without the `.yaml` extension:
-
-```powershell
-$Env:KAFKA_SCENARIO = "auth"
-docker compose @ComposeArgs config --quiet
-```
-
-The selected file must exist under `scenarios/`. Scenario pipeline definitions,
-required topics, input generation, and validation expectations should be
-documented with that scenario.
+The `auth` and `syslog` scenarios use `compose.yaml` and
+`compose.dataflow.yaml`. The `syslog-la` scenario also includes
+`compose.azure.yaml`.
 
 ## Start the Selected Scenario
 
@@ -160,7 +139,7 @@ The auth scenario's traffic generators run continuously when
 using the shared startup steps:
 
 ```powershell
-$Env:KAFKA_SCENARIO = "auth"
+$ComposeArgs = & ./examples/kafka-e2e/scripts/Setup-KafkaE2E.ps1 -Scenario auth
 Remove-Item Env:KAFKA_MAX_SIGNAL_COUNT -ErrorAction SilentlyContinue
 ```
 
@@ -173,7 +152,7 @@ Use a bounded run to produce 20 signals per authentication mechanism and
 produce a finite console log that is easier to review:
 
 ```powershell
-$Env:KAFKA_SCENARIO = "auth"
+$ComposeArgs = & ./examples/kafka-e2e/scripts/Setup-KafkaE2E.ps1 -Scenario auth
 $Env:KAFKA_MAX_SIGNAL_COUNT = "20"
 ```
 
@@ -291,7 +270,7 @@ and its `librdkafka` dependency to the pinned official image.
 Select the scenario and use the shared startup steps:
 
 ```powershell
-$Env:KAFKA_SCENARIO = "syslog"
+$ComposeArgs = & ./examples/kafka-e2e/scripts/Setup-KafkaE2E.ps1 -Scenario syslog
 ```
 
 ### Message Generation
@@ -413,6 +392,120 @@ $Logs | Select-String -Pattern `
 All four paths use empty resources and scopes and should contain matching
 syslog attributes, including `input.format=rfc5424`.
 
+## Log Analytics Scenario
+
+The `syslog-la` scenario keeps RFC 5424 messages as raw bytes in Kafka and
+exports them to an Azure Log Analytics custom table:
+
+```text
+UDP RFC 5424 -> rsyslog -> syslog-raw-rsyslog
+             -> Kafka receiver (Syslog decoding) -> Azure Monitor exporter
+```
+
+The Azure overlay reuses the existing `syslog` broker setup, including its raw
+rsyslog topic. It replaces only the dataflow configuration. The Kafka receiver
+decodes the raw Syslog record because the Logs Ingestion API accepts JSON
+records rather than raw wire bytes. No OTLP or OTAP encoding is used in Kafka.
+
+This local-development flow authenticates as an Entra user through Azure CLI
+inside the dataflow container. The CLI token cache is stored in a dedicated
+Docker volume. For production deployments, use managed identity or workload
+identity instead.
+
+Set up the Log Analytics scenario:
+
+```powershell
+$ComposeArgs = & ./examples/kafka-e2e/scripts/Setup-KafkaE2E.ps1 -Scenario syslog-la
+```
+
+Build the Azure-enabled dataflow image:
+
+```powershell
+docker compose @ComposeArgs build df-engine
+```
+
+Sign in from the container. The script prints an authorization URL; open it in
+the compliant host browser. Port `8400` returns the browser callback to the
+container. This browser flow is required when Conditional Access blocks device
+code authentication:
+
+```powershell
+$TenantId = "70a036f6-8e4d-4615-bad6-149c02e7720d"
+$SubscriptionId = "74c8e62c-e50c-4289-ba32-8c59db23e24b"
+
+docker compose @ComposeArgs run --rm --no-deps `
+  -p 127.0.0.1:8400:8400 `
+  --entrypoint /bin/bash df-engine `
+  /scripts/login-azure.sh $TenantId $SubscriptionId
+```
+
+Provision the custom table and direct Data Collection Rule. This is a one-time
+step for each workspace and resource set; skip it on later runs unless the
+resources or template have changed. The deployment is idempotent, so rerunning
+it is safe and can be used to repopulate `$Outputs` in a new PowerShell session.
+Azure CLI automatically installs its integrated Bicep CLI when needed:
+
+```powershell
+$Deployment = docker compose @ComposeArgs run --rm --no-deps `
+  --entrypoint az df-engine `
+  deployment group create `
+  --subscription $SubscriptionId `
+  --resource-group bsap-test `
+  --template-file /azure/main.bicep `
+  --parameters workspaceName=bsap-laworkspace location=eastus `
+  --output json | ConvertFrom-Json
+
+$Outputs = $Deployment.properties.outputs
+```
+
+Set the dataflow configuration values from the deployment outputs:
+
+```powershell
+$Env:AZURE_MONITOR_DCR_ENDPOINT = $Outputs.dcrEndpoint.value
+$Env:AZURE_MONITOR_DCR_ID = $Outputs.dcrId.value
+$Env:AZURE_MONITOR_STREAM_NAME = $Outputs.streamName.value
+```
+
+Start the stack and send a raw Syslog message through rsyslog:
+
+```powershell
+docker compose @ComposeArgs up -d
+& ./examples/kafka-e2e/scripts/Send-Syslog.ps1 -Target Rsyslog
+```
+
+Before checking Log Analytics, verify the source record in Kafka. Open
+<http://127.0.0.1:8082/topics/syslog-raw-rsyslog> in Redpanda Console, select
+the **Messages** tab, and inspect the newest record. Its value should be the
+original RFC 5424 string and contain
+`kafka-syslog-e2e-syslog-raw-rsyslog-`; it should not be JSON, OTLP, or OTAP.
+
+After ingestion completes, query the custom table:
+
+```powershell
+docker compose @ComposeArgs run --rm --no-deps --entrypoint az df-engine `
+  extension add --name log-analytics
+
+docker compose @ComposeArgs run --rm --no-deps --entrypoint az df-engine `
+  monitor log-analytics query `
+  --workspace $Outputs.workspaceId.value `
+  --analytics-query `
+    "OtelArrowRawSyslog_CL | order by TimeGenerated desc | take 10" `
+  --output table
+```
+
+You can also validate the output directly in the Azure portal. Open the
+`bsap-laworkspace` Log Analytics workspace, select **Logs**, and run:
+
+```kusto
+OtelArrowRawSyslog_CL
+| order by TimeGenerated desc
+| take 10
+```
+
+The expected row has `Message` starting with
+`kafka-syslog-e2e-syslog-raw-rsyslog-`, `HostName` set to `test-host`,
+`AppName` set to `test-app`, and `InputFormat` set to `rfc5424`.
+
 ## Troubleshooting
 
 Inspect service state and recent logs:
@@ -423,6 +516,20 @@ docker compose @ComposeArgs logs --no-color --tail 100 kafka
 docker compose @ComposeArgs logs --no-color --tail 100 df-engine
 docker compose @ComposeArgs logs --no-color --tail 100 rsyslog
 docker compose @ComposeArgs logs --no-color --tail 100 logstash
+```
+
+If the Azure Monitor exporter receives `403 Forbidden`, verify that the user or
+team security group has the `Monitoring Metrics Publisher` role on the DCR,
+resource group, or subscription. An administrator can assign it directly to the
+DCR when it is not inherited:
+
+```powershell
+docker compose @ComposeArgs run --rm --no-deps --entrypoint az df-engine `
+  role assignment create `
+  --assignee-object-id "<team-security-group-object-id>" `
+  --assignee-principal-type Group `
+  --role "Monitoring Metrics Publisher" `
+  --scope $Outputs.dataCollectionRuleResourceId.value
 ```
 
 If the auth scenario shows pipelines but no live traffic, confirm that the
@@ -447,7 +554,13 @@ Stop the stack and remove its broker data:
 docker compose @ComposeArgs down -v
 Remove-Item Env:KAFKA_SCENARIO -ErrorAction SilentlyContinue
 Remove-Item Env:KAFKA_MAX_SIGNAL_COUNT -ErrorAction SilentlyContinue
+Remove-Item Env:AZURE_MONITOR_DCR_ENDPOINT -ErrorAction SilentlyContinue
+Remove-Item Env:AZURE_MONITOR_DCR_ID -ErrorAction SilentlyContinue
+Remove-Item Env:AZURE_MONITOR_STREAM_NAME -ErrorAction SilentlyContinue
 ```
+
+For the Azure scenario, `down -v` also removes the sensitive Azure CLI token
+cache. It does not delete the custom table, DCR, or Azure role assignment.
 
 To also regenerate the local certificates on the next run:
 

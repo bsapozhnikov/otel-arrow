@@ -1,0 +1,26 @@
+services:
+  kafka-init:
+    environment:
+      KAFKA_SCENARIO: syslog
+
+  df-engine:
+    build:
+      args:
+        BUILD_CACHE_SUFFIX: azure-bookworm
+        BUILD_IMAGE: docker.io/rust:1.97-bookworm
+        FEATURES: kafka-receiver,azure-monitor-exporter
+        RUNTIME_IMAGE: mcr.microsoft.com/azure-cli:2.77.0-azurelinux3.0
+        RUNTIME_USER: root
+    environment:
+      AZURE_CONFIG_DIR: /root/.azure
+      AZURE_MONITOR_DCR_ENDPOINT: "${AZURE_MONITOR_DCR_ENDPOINT:-}"
+      AZURE_MONITOR_DCR_ID: "${AZURE_MONITOR_DCR_ID:-}"
+      AZURE_MONITOR_STREAM_NAME: "${AZURE_MONITOR_STREAM_NAME:-Custom-OtelArrowRawSyslog_CL}"
+    volumes:
+      - ./azure:/azure:ro
+      - ./scenarios/syslog-la.yaml:/etc/otel/kafka-scenario.yaml:ro
+      - ./scripts:/scripts:ro
+      - azure-cli:/root/.azure
+
+volumes:
+  azure-cli:

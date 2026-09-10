@@ -1,0 +1,65 @@
+version: otel_dataflow/v1
+engine: {}
+policies:
+  resources:
+    core_allocation:
+      type: core_count
+      count: 1
+groups:
+  default:
+    pipelines:
+      kafka-raw-syslog-la-consumer:
+        extensions:
+          azure-identity:
+            type: "urn:microsoft:extension:azure_identity_auth"
+            config:
+              method: development
+              scope: "https://monitor.azure.com/.default"
+        nodes:
+          kafka:
+            type: receiver:kafka
+            config:
+              brokers: "${env:KAFKA_BROKERS:-localhost:9093}"
+              group_id: "otap-raw-syslog-la-consumer"
+              client_id: "otap-raw-syslog-la-consumer"
+              auto_offset_reset: earliest
+              logs:
+                topics: ["syslog-raw-rsyslog"]
+                encoding: syslog
+              auth:
+                sasl:
+                  mechanism: PLAIN
+                  username: "plain"
+                  password: "plain-secret"
+              tls:
+                ca_file: "${env:KAFKA_CA_FILE:-examples/kafka-e2e/certs/ca.crt}"
+          azure-monitor:
+            type: "urn:microsoft:exporter:azure_monitor"
+            capabilities:
+              bearer_token_provider: azure-identity
+            config:
+              api:
+                dcr_endpoint: "${env:AZURE_MONITOR_DCR_ENDPOINT}"
+                dcr: "${env:AZURE_MONITOR_DCR_ID}"
+                stream_name: "${env:AZURE_MONITOR_STREAM_NAME}"
+                schema:
+                  log_record_mapping:
+                    body: RawMessage
+                    severity_text: SeverityText
+                    severity_number: SeverityNumber
+                    time_unix_nano: TimeGenerated
+                    attributes:
+                      syslog.message: Message
+                      syslog.version: SyslogVersion
+                      syslog.facility: Facility
+                      syslog.severity: SyslogSeverity
+                      syslog.host_name: HostName
+                      syslog.app_name: AppName
+                      syslog.process_id_str: ProcessId
+                      syslog.process_id: ProcessIdNumeric
+                      syslog.msg_id: MessageId
+                      syslog.structured_data: StructuredData
+                      input.format: InputFormat
+        connections:
+          - from: kafka
+            to: azure-monitor

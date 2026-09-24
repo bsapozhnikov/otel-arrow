@@ -8,8 +8,8 @@ Compose files and environment.
 | Scenario | Flow |
 | --- | --- |
 | `auth` | Synthetic OTLP logs through three SASL-over-TLS mechanisms |
-| `syslog` | RFC 5424 through parsed OTLP and raw rsyslog Kafka paths |
-| `syslog-la` | Raw RFC 5424 through Kafka into Azure Log Analytics |
+| `syslog` | RFC 5424 and CEF through parsed OTLP and raw Kafka paths |
+| `syslog-la` | RFC 5424 and CEF through Kafka or UDP into Log Analytics |
 
 ## Prerequisites
 
@@ -222,6 +222,9 @@ UDP RFC 5424 -> syslog receiver -> Kafka exporter -> syslog-otlp-otel_arrow
 UDP RFC 5424 -> rsyslog -> syslog-raw-rsyslog
              -> Kafka receiver (Syslog decode) -> console exporter
 
+UDP CEF -> rsyslog -> syslog-raw-rsyslog
+        -> Kafka receiver (CEF decode) -> console exporter
+
 UDP RFC 5424 -> Logstash plain input -> syslog-raw-logstash
              -> Kafka receiver (Syslog decode) -> console exporter
 
@@ -253,8 +256,8 @@ the codec and generate Ruby bindings from the repository's pinned
 OpenTelemetry proto revision.
 
 The raw rsyslog and Logstash consumers configure the Kafka receiver's `syslog`
-encoding, which parses the original RFC 5424 payload into an OpenTelemetry log
-record.
+encoding, which parses the original RFC 5424 or CEF payload into an
+OpenTelemetry log record.
 
 The JSON consumer intentionally configures `otlp_proto`. The Kafka receiver
 forwards those bytes as an OTLP payload without eagerly validating the protobuf
@@ -278,47 +281,56 @@ $ComposeArgs = & ./examples/kafka-e2e/scripts/Setup-KafkaE2E.ps1 -Scenario syslo
 Send one RFC 5424 message through otel-arrow:
 
 ```powershell
-& ./examples/kafka-e2e/scripts/Send-Syslog.ps1 -Target OtelArrow
+& ./examples/kafka-e2e/scripts/Send-SyslogCef.ps1 -Target OtelArrow
 ```
 
 Send one RFC 5424 message directly through rsyslog:
 
 ```powershell
-& ./examples/kafka-e2e/scripts/Send-Syslog.ps1 -Target Rsyslog
+& ./examples/kafka-e2e/scripts/Send-SyslogCef.ps1 -Target Rsyslog
 ```
 
 Send one RFC 5424 message through the Logstash plain input:
 
 ```powershell
-& ./examples/kafka-e2e/scripts/Send-Syslog.ps1 -Target LogstashRaw
+& ./examples/kafka-e2e/scripts/Send-SyslogCef.ps1 -Target LogstashRaw
 ```
 
 Send one RFC 5424 message through the Logstash syslog input:
 
 ```powershell
-& ./examples/kafka-e2e/scripts/Send-Syslog.ps1 -Target LogstashJson
+& ./examples/kafka-e2e/scripts/Send-SyslogCef.ps1 -Target LogstashJson
 ```
 
 Send one RFC 5424 message as OTLP protobuf through Logstash:
 
 ```powershell
-& ./examples/kafka-e2e/scripts/Send-Syslog.ps1 -Target LogstashOtlp
+& ./examples/kafka-e2e/scripts/Send-SyslogCef.ps1 -Target LogstashOtlp
 ```
 
 `OtelArrow` is the default target. All targets support custom content:
 
 ```powershell
-& ./examples/kafka-e2e/scripts/Send-Syslog.ps1 -Target Rsyslog `
+& ./examples/kafka-e2e/scripts/Send-SyslogCef.ps1 -Target Rsyslog `
   -Message "application started"
 ```
 
 Without `-Message`, the generated message includes the destination topic name
 so records from different paths are easy to distinguish.
 
+Send bare CEF through the raw rsyslog path:
+
+```powershell
+& ./examples/kafka-e2e/scripts/Send-SyslogCef.ps1 -Target Rsyslog -Format Cef
+```
+
+The generated CEF event includes representative header and extension fields.
+Use `-Message` to set the CEF event name.
+
 Generate continuous traffic through any target:
 
 ```powershell
-& ./examples/kafka-e2e/scripts/Send-Syslog.ps1 -Target OtelArrow `
+& ./examples/kafka-e2e/scripts/Send-SyslogCef.ps1 -Target OtelArrow `
   -Continuous `
   -MessagesPerSecond 5
 ```
@@ -392,14 +404,28 @@ $Logs | Select-String -Pattern `
 All four paths use empty resources and scopes and should contain matching
 syslog attributes, including `input.format=rfc5424`.
 
+### CEF Verification
+
+With the `syslog` scenario running, execute the focused CEF validation:
+
+```powershell
+& ./examples/kafka-e2e/scripts/Test-KafkaCef.ps1
+```
+
+The script sends a uniquely named CEF event through rsyslog and Kafka, then
+waits for the dataflow console output to contain its decoded CEF header fields,
+extensions, and `input.format=cef`.
+
 ## Log Analytics Scenario
 
-The `syslog-la` scenario keeps RFC 5424 messages as raw bytes in Kafka and
-exports them to an Azure Log Analytics custom table:
+The `syslog-la` scenario keeps RFC 5424 or CEF messages as raw bytes in Kafka,
+decodes them in the Kafka receiver, and exports the resulting fields to an
+Azure Log Analytics custom table:
 
 ```text
-UDP RFC 5424 -> rsyslog -> syslog-raw-rsyslog
-             -> Kafka receiver (Syslog decoding) -> Azure Monitor exporter
+UDP RFC 5424 or CEF -> rsyslog -> syslog-raw-rsyslog
+                    -> Kafka receiver (Syslog/CEF decoding)
+                    -> Azure Monitor exporter
 ```
 
 The Azure overlay reuses the existing `syslog` broker setup, including its raw
@@ -466,18 +492,22 @@ $Env:AZURE_MONITOR_DCR_ID = $Outputs.dcrId.value
 $Env:AZURE_MONITOR_STREAM_NAME = $Outputs.streamName.value
 ```
 
-Start the stack and send a raw Syslog message through rsyslog:
+Start the stack and send a bare CEF message through rsyslog:
 
 ```powershell
 docker compose @ComposeArgs up -d
-& ./examples/kafka-e2e/scripts/Send-Syslog.ps1 -Target Rsyslog
+$CefName = "kafka-cef-la-$([Guid]::NewGuid().ToString('N'))"
+& ./examples/kafka-e2e/scripts/Send-SyslogCef.ps1 `
+  -Target Rsyslog `
+  -Format Cef `
+  -Message $CefName
 ```
 
 Before checking Log Analytics, verify the source record in Kafka. Open
 <http://127.0.0.1:8082/topics/syslog-raw-rsyslog> in Redpanda Console, select
-the **Messages** tab, and inspect the newest record. Its value should be the
-original RFC 5424 string and contain
-`kafka-syslog-e2e-syslog-raw-rsyslog-`; it should not be JSON, OTLP, or OTAP.
+the **Messages** tab, and inspect the newest record. Its value should start with
+`CEF:0|Security|threatmanager|1.0|100|$CefName|10|`; it should not be JSON,
+OTLP, or OTAP.
 
 After ingestion completes, query the custom table:
 
@@ -498,13 +528,58 @@ You can also validate the output directly in the Azure portal. Open the
 
 ```kusto
 OtelArrowRawSyslog_CL
+| where EventName == "<value of $CefName>"
 | order by TimeGenerated desc
-| take 10
+| project TimeGenerated, InputFormat, RawMessage, CefVersion, DeviceVendor,
+    DeviceProduct, DeviceVersion, DeviceEventClassId, EventName, CefSeverity,
+    SourceAddress, DestinationAddress, SourcePort
 ```
 
-The expected row has `Message` starting with
-`kafka-syslog-e2e-syslog-raw-rsyslog-`, `HostName` set to `test-host`,
-`AppName` set to `test-app`, and `InputFormat` set to `rfc5424`.
+The expected row has `InputFormat` set to `cef`, `EventName` equal to
+`$CefName`, and the other decoded CEF header and extension columns populated.
+
+With the current collector behavior, fully parsed bare CEF does not retain the
+original input in the log body or `syslog.message`. `RawMessage` and `Message`
+are therefore empty even though Kafka contains the original CEF bytes. This
+scenario validates that distinction without changing collector behavior.
+
+`CefVersion` is also null for the common `CEF:0` input. The decoder represents
+the version as integer zero, but the current OTAP view used by the console and
+Azure Monitor exporters presents an omitted all-default integer column as an
+empty value. Other CEF fields remain available.
+
+### Direct UDP Receiver Comparison
+
+The Log Analytics scenario also runs a direct Syslog/CEF receiver on UDP port
+`5514`. Send a bare CEF event without Kafka:
+
+```powershell
+$DirectCefName = "direct-cef-udp-la-$([Guid]::NewGuid().ToString('N'))"
+& ./examples/kafka-e2e/scripts/Send-SyslogCef.ps1 `
+  -Target OtelArrow `
+  -Format Cef `
+  -Message $DirectCefName
+```
+
+Wait until the dataflow logs contain
+`syslog_cef_receiver.start` before sending. UDP does not retry datagrams sent
+before the receiver binds its port.
+
+Query the direct and Kafka paths together:
+
+```kusto
+OtelArrowRawSyslog_CL
+| where EventName in ("<value of $CefName>", "<value of $DirectCefName>")
+| project TimeGenerated, EventName, InputFormat, RawMessage, Message,
+    CefVersion, DeviceVendor, DeviceProduct, DeviceVersion,
+    DeviceEventClassId, CefSeverity, SourceAddress, DestinationAddress,
+    SourcePort
+| order by TimeGenerated asc
+```
+
+Both paths currently produce the same Log Analytics shape: decoded CEF fields
+are populated, `InputFormat` is `cef`, `RawMessage` and `Message` are empty,
+and `CefVersion` is null for `CEF:0`.
 
 ## Troubleshooting
 

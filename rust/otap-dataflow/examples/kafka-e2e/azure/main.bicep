@@ -25,6 +25,46 @@ var columns = [
     type: 'string'
   }
   {
+    name: 'CefVersion'
+    type: 'int'
+  }
+  {
+    name: 'DeviceVendor'
+    type: 'string'
+  }
+  {
+    name: 'DeviceProduct'
+    type: 'string'
+  }
+  {
+    name: 'DeviceVersion'
+    type: 'string'
+  }
+  {
+    name: 'DeviceEventClassId'
+    type: 'string'
+  }
+  {
+    name: 'EventName'
+    type: 'string'
+  }
+  {
+    name: 'CefSeverity'
+    type: 'string'
+  }
+  {
+    name: 'SourceAddress'
+    type: 'string'
+  }
+  {
+    name: 'DestinationAddress'
+    type: 'string'
+  }
+  {
+    name: 'SourcePort'
+    type: 'string'
+  }
+  {
     name: 'SeverityText'
     type: 'string'
   }

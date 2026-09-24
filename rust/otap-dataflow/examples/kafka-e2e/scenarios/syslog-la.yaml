@@ -49,6 +49,16 @@ groups:
                     severity_number: SeverityNumber
                     time_unix_nano: TimeGenerated
                     attributes:
+                      cef.version: CefVersion
+                      cef.device_vendor: DeviceVendor
+                      cef.device_product: DeviceProduct
+                      cef.device_version: DeviceVersion
+                      cef.device_event_class_id: DeviceEventClassId
+                      cef.name: EventName
+                      cef.severity: CefSeverity
+                      src: SourceAddress
+                      dst: DestinationAddress
+                      spt: SourcePort
                       syslog.message: Message
                       syslog.version: SyslogVersion
                       syslog.facility: Facility
@@ -62,4 +72,62 @@ groups:
                       input.format: InputFormat
         connections:
           - from: kafka
+            to: azure-monitor
+
+      direct-cef-udp-la:
+        extensions:
+          azure-identity:
+            type: "urn:microsoft:extension:azure_identity_auth"
+            config:
+              method: development
+              scope: "https://monitor.azure.com/.default"
+        nodes:
+          syslog:
+            type: receiver:syslog_cef
+            config:
+              protocol:
+                udp:
+                  listening_addr: "0.0.0.0:5514"
+              batch:
+                max_batch_duration_ms: 50
+                max_size: 1
+          azure-monitor:
+            type: "urn:microsoft:exporter:azure_monitor"
+            capabilities:
+              bearer_token_provider: azure-identity
+            config:
+              api:
+                dcr_endpoint: "${env:AZURE_MONITOR_DCR_ENDPOINT}"
+                dcr: "${env:AZURE_MONITOR_DCR_ID}"
+                stream_name: "${env:AZURE_MONITOR_STREAM_NAME}"
+                schema:
+                  log_record_mapping:
+                    body: RawMessage
+                    severity_text: SeverityText
+                    severity_number: SeverityNumber
+                    time_unix_nano: TimeGenerated
+                    attributes:
+                      cef.version: CefVersion
+                      cef.device_vendor: DeviceVendor
+                      cef.device_product: DeviceProduct
+                      cef.device_version: DeviceVersion
+                      cef.device_event_class_id: DeviceEventClassId
+                      cef.name: EventName
+                      cef.severity: CefSeverity
+                      src: SourceAddress
+                      dst: DestinationAddress
+                      spt: SourcePort
+                      syslog.message: Message
+                      syslog.version: SyslogVersion
+                      syslog.facility: Facility
+                      syslog.severity: SyslogSeverity
+                      syslog.host_name: HostName
+                      syslog.app_name: AppName
+                      syslog.process_id_str: ProcessId
+                      syslog.process_id: ProcessIdNumeric
+                      syslog.msg_id: MessageId
+                      syslog.structured_data: StructuredData
+                      input.format: InputFormat
+        connections:
+          - from: syslog
             to: azure-monitor

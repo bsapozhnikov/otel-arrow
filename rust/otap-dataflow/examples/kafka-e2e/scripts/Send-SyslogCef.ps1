@@ -3,6 +3,9 @@ param(
     [ValidateSet('OtelArrow', 'Rsyslog', 'LogstashRaw', 'LogstashJson', 'LogstashOtlp')]
     [string]$Target = 'OtelArrow',
 
+    [ValidateSet('Rfc5424', 'Cef')]
+    [string]$Format = 'Rfc5424',
+
     [switch]$Continuous,
 
     [ValidateRange(1, 1000)]
@@ -36,11 +39,17 @@ try {
         else {
             "kafka-syslog-e2e-${topic}-$([Guid]::NewGuid().ToString('N'))-$sequence"
         }
-        $timestamp = [DateTime]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ss.fffZ')
-        $syslog = "<34>1 $timestamp test-host test-app 123 ID47 - $body"
-        $bytes = [Text.Encoding]::UTF8.GetBytes($syslog)
+        $payload = if ($Format -eq 'Cef') {
+            $cefName = $body.Replace('\', '\\').Replace('|', '\|')
+            "CEF:0|Security|threatmanager|1.0|100|$cefName|10|src=10.0.0.1 dst=2.1.2.2 spt=1232"
+        }
+        else {
+            $timestamp = [DateTime]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ss.fffZ')
+            "<34>1 $timestamp test-host test-app 123 ID47 - $body"
+        }
+        $bytes = [Text.Encoding]::UTF8.GetBytes($payload)
         [void]$udp.Send($bytes, $bytes.Length, '127.0.0.1', $port)
-        Write-Host "Sent to ${Target}: $body"
+        Write-Host "Sent $Format to ${Target}: $body"
 
         if ($Continuous) {
             Start-Sleep -Milliseconds $delayMilliseconds
